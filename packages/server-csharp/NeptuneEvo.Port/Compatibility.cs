@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Collections.Generic;
 
 namespace System
@@ -118,6 +119,21 @@ namespace NeptuneEvo
         public static double Sqrt(double value) => System.Math.Sqrt(value);
         public static double Truncate(double value) => System.Math.Truncate(value);
         public static decimal Truncate(decimal value) => System.Math.Truncate(value);
+    }
+}
+
+namespace NeptuneEvo.PortCompatibility
+{
+    public static class FiveMThreadGuard
+    {
+        private static int _mainThreadId = -1;
+
+        public static void Capture()
+        {
+            Interlocked.CompareExchange(ref _mainThreadId, Environment.CurrentManagedThreadId, -1);
+        }
+
+        public static bool IsMainThread => Volatile.Read(ref _mainThreadId) == Environment.CurrentManagedThreadId;
     }
 }
 
