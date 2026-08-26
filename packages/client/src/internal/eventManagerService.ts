@@ -118,60 +118,21 @@ export function setupConsoleAndChat(mgr: EventManager): void {
 }
 
 export function setupGameEvents(mgr: EventManager): void {
+  // Cfx exposes a stable, normalized damage event in addition to the raw
+  // CEventNetworkEntityDamage payload. The latter changes layout between GTA
+  // builds and does not expose a trustworthy damage amount. RAGE handlers rely
+  // on the exact six-argument contract, so always build it from entityDamaged.
+  on("entityDamaged", (victim: number, attacker: number, weaponHash: number, baseDamage: number) => {
+    dispatchRageDamageEvent(mgr, victim, attacker, weaponHash, baseDamage);
+  });
+
   on("gameEventTriggered", (name: string, args: any[]) => {
     const localPlayer = globalThis.mp?.players?.local;
     if (!localPlayer) return;
 
     if (name === "CEventNetworkEntityDamage") {
-      const victim = args[0];
-      const attacker = args[1];
-      const damageAmount = args[3];
-      const weaponHash = args[4];
-      const localPed = PlayerPedId();
-
-      if (victim === localPed) {
-        const rec = ClientEventManagerInternals.get(mgr);
-        rec.lastDamageAttackerServerId = -1;
-        rec.lastDamageWeapon = Number(weaponHash ?? 0);
-        try {
-          if (attacker && attacker !== localPed && IsEntityAPed(attacker)) {
-            const attackerPlayer = NetworkGetPlayerIndexFromPed(attacker);
-            if (attackerPlayer >= 0) rec.lastDamageAttackerServerId = GetPlayerServerId(attackerPlayer);
-          }
-        } catch (_) {}
-        beginDamageEvent();
-        const cancelled = dispatchCancelable(
-          mgr,
-          "incomingDamage",
-          localPlayer,
-          attacker,
-          weaponHash,
-          damageAmount,
-          false,
-          0,
-        );
-        const damageState = endDamageEvent();
-        if (cancelled || damageState?.cancelled) {
-          if (typeof CancelEvent === "function") CancelEvent();
-        }
-      }
-      if (attacker === localPed) {
-        beginDamageEvent();
-        const cancelled = dispatchCancelable(
-          mgr,
-          "outgoingDamage",
-          localPlayer,
-          victim,
-          weaponHash,
-          damageAmount,
-          false,
-          0,
-        );
-        const damageState = endDamageEvent();
-        if (cancelled || damageState?.cancelled) {
-          if (typeof CancelEvent === "function") CancelEvent();
-        }
-      }
+      // Kept intentionally as a no-op. entityDamaged is emitted for the same
+      // engine damage and prevents duplicate RAGE callbacks.
       return;
     }
 
@@ -229,6 +190,185 @@ export function setupGameEvents(mgr: EventManager): void {
       return;
     }
   });
+}
+
+function resolveDamageEntity(handle: number): any {
+  const mp = globalThis.mp;
+  if (!mp || !handle || !DoesEntityExist(handle)) return null;
+
+  const localPlayer = mp.players?.local;
+  if (localPlayer && handle === PlayerPedId()) return localPlayer;
+
+  try {
+    if (IsEntityAPed(handle)) {
+      const playerIndex = NetworkGetPlayerIndexFromPed(handle);
+      if (playerIndex >= 0) {
+        const serverId = GetPlayerServerId(playerIndex);
+        return playerByServerId(serverId) ?? mp.players?.atHandle?.(handle) ?? null;
+      }
+      return resolveHandle(mp.peds, handle) ?? null;
+    }
+    if (IsEntityAVehicle(handle)) return resolveHandle(mp.vehicles, handle) ?? null;
+    if (IsEntityAnObject(handle)) return resolveHandle(mp.objects, handle) ?? null;
+  } catch (_) {}
+
+  return null;
+}
+
+function resolveDamageSourcePlayer(handle: number, sourceEntity: any): any {
+  const mp = globalThis.mp;
+  if (!mp || !handle) return null;
+  if (sourceEntity?.type === "player") return sourceEntity;
+
+  try {
+    if (handle === PlayerPedId()) return mp.players?.local ?? null;
+    if (IsEntityAPed(handle)) {
+      const playerIndex = NetworkGetPlayerIndexFromPed(handle);
+      if (playerIndex >= 0) return playerByServerId(GetPlayerServerId(playerIndex)) ?? null;
+    }
+    // FiveM also reports the local player as owner of locally-created peds.
+    // RAGE uses that owner as sourcePlayer for client-side pet damage.
+    const owner = NetworkGetEntityOwner(handle);
+    if (owner >= 0) return playerByServerId(GetPlayerServerId(owner)) ?? null;
+  } catch (_) {}
+  return null;
+}
+
+function getRageDamageBoneIndex(victim: number): number {
+  try {
+    if (!victim || !IsEntityAPed(victim)) return 0;
+    const result = GetPedLastDamageBone(victim) as any;
+    const found = Array.isArray(result) ? !!result[0] : false;
+    const boneId = Array.isArray(result) ? Number(result[1]) : Number(result);
+    if (!found || !Number.isFinite(boneId)) return 0;
+    const boneIndex = GetPedBoneIndex(victim, boneId);
+    return Number.isFinite(boneIndex) && boneIndex >= 0 ? boneIndex : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function adjustPedDamage(
+  victim: number,
+  observedHealth: number,
+  observedArmour: number,
+  previousHealth: number | null,
+  previousArmour: number | null,
+  originalDamage: number,
+  desiredDamage: number,
+): void {
+  if (!victim || !IsEntityAPed(victim)) return;
+  const correction = Math.max(0, originalDamage) - Math.max(0, desiredDamage);
+  if (Math.abs(correction) < 0.01) return;
+
+  let health = GetEntityHealth(victim);
+  let armour = GetPedArmour(victim);
+  if (correction > 0) {
+    // Preserve mutations made by the legacy handler itself. Only compensate
+    // the GTA damage that had already landed before entityDamaged was queued.
+    let remaining = correction;
+    const knownArmourLoss = previousArmour == null
+      ? (observedArmour > 0 ? correction : 0)
+      : Math.max(0, previousArmour - observedArmour);
+    const armourRestore = Math.min(remaining, knownArmourLoss);
+    if (armourRestore > 0) {
+      armour += armourRestore;
+      SetPedArmour(victim, Math.round(armour));
+      remaining -= armourRestore;
+    }
+    if (remaining > 0) {
+      const maxHealth = Math.max(GetEntityMaxHealth(victim), health);
+      SetEntityHealth(victim, Math.min(maxHealth, Math.round(health + remaining)));
+    }
+    return;
+  }
+
+  let extra = -correction;
+  const armourDamage = Math.min(extra, Math.max(0, armour));
+  if (armourDamage > 0) {
+    armour -= armourDamage;
+    SetPedArmour(victim, Math.round(armour));
+    extra -= armourDamage;
+  }
+  if (extra > 0) SetEntityHealth(victim, Math.max(0, Math.round(health - extra)));
+}
+
+function dispatchRageDamageEvent(
+  mgr: EventManager,
+  victimHandle: number,
+  attackerHandle: number,
+  weaponHash: number,
+  baseDamage: number,
+): void {
+  const mp = globalThis.mp;
+  const localPlayer = mp?.players?.local;
+  if (!mp || !localPlayer || !victimHandle) return;
+
+  const localPed = PlayerPedId();
+  const sourceEntity = resolveDamageEntity(attackerHandle);
+  const targetEntity = resolveDamageEntity(victimHandle);
+  if (!targetEntity) return;
+  const sourcePlayer = resolveDamageSourcePlayer(attackerHandle, sourceEntity);
+  const boneIndex = getRageDamageBoneIndex(victimHandle);
+  const damage = Number.isFinite(baseDamage) ? Math.max(0, Number(baseDamage)) : 0;
+  const observedHealth = IsEntityAPed(victimHandle) ? GetEntityHealth(victimHandle) : 0;
+  const observedArmour = IsEntityAPed(victimHandle) ? GetPedArmour(victimHandle) : 0;
+  const rec = ClientEventManagerInternals.get(mgr);
+
+  let previousHealth: number | null = null;
+  let previousArmour: number | null = null;
+  if (victimHandle === localPed) {
+    previousHealth = rec.trackedHealth > 0 ? rec.trackedHealth : null;
+    previousArmour = rec.trackedArmour >= 0 ? rec.trackedArmour : null;
+    rec.lastDamageAttackerServerId = sourcePlayer?.getId?.() ?? -1;
+    rec.lastDamageWeapon = Number(weaponHash ?? 0);
+  }
+
+  beginDamageEvent();
+  let cancelled = false;
+  if (victimHandle === localPed) {
+    cancelled = dispatchCancelable(
+      mgr,
+      "incomingDamage",
+      sourceEntity,
+      sourcePlayer,
+      targetEntity,
+      Number(weaponHash ?? 0),
+      boneIndex,
+      damage,
+    ) || cancelled;
+  }
+  if (sourcePlayer === localPlayer) {
+    cancelled = dispatchCancelable(
+      mgr,
+      "outgoingDamage",
+      sourceEntity,
+      targetEntity,
+      sourcePlayer,
+      Number(weaponHash ?? 0),
+      boneIndex,
+      damage,
+    ) || cancelled;
+  }
+  const damageState = endDamageEvent();
+  cancelled = cancelled || !!damageState?.cancelled;
+
+  if (cancelled || damageState?.amount != null || damageState?.critical === false) {
+    const knownActualDamage = previousHealth == null || previousArmour == null
+      ? damage
+      : Math.max(0, previousHealth - observedHealth) + Math.max(0, previousArmour - observedArmour);
+    const desiredDamage = cancelled ? 0 : (damageState?.amount ?? damage);
+    adjustPedDamage(
+      victimHandle,
+      observedHealth,
+      observedArmour,
+      previousHealth,
+      previousArmour,
+      knownActualDamage,
+      desiredDamage,
+    );
+    if (cancelled && typeof CancelEvent === "function") CancelEvent();
+  }
 }
 
 function dispatchCancelable(mgr: EventManager, eventName: string, ...args: any[]): boolean {

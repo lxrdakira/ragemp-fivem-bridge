@@ -53,7 +53,9 @@ export class PedMp extends PedMpBase {
   }
 
   get controller(): any {
-    const serverId = NetworkGetEntityOwner(this.handle);
+    const playerIndex = NetworkGetEntityOwner(this.handle);
+    if (playerIndex < 0) return null;
+    const serverId = GetPlayerServerId(playerIndex);
     if (!serverId) return null;
     return playerByServerId(serverId) ?? null;
   }
