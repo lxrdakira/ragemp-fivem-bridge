@@ -522,7 +522,6 @@ export function setupMainTick(mgr: EventManager): void {
     tickWaypoint(mgr, ped, localPlayer, playerCoords);
     tickVehicleAudio(mgr);
     tickModelAndHealth(mgr, ped);
-    tickActions(mgr, ped, localPlayer);
     tickStreaming(mgr, cache, localPlayer);
   });
 
@@ -536,6 +535,9 @@ export function setupMainTick(mgr: EventManager): void {
     tickLifecycle(mgr, ped, localPlayer);
     tickVehicleState(mgr, ped, localPlayer);
     tickWeapon(mgr, ped, localPlayer);
+    // Input edges and weapon shots are frame-sensitive. Running these in the
+    // 200 ms world scan drops quick clicks and most automatic-fire shots.
+    tickActions(mgr, ped, localPlayer);
   });
 
   on("onResourceStop", (name: string) => {

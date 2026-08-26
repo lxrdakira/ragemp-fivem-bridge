@@ -37,6 +37,7 @@ namespace RageMP.FiveM.Bridge.Host
                 case 10: return new Action<CfxPlayer, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?>(Handle10);
                 case 11: return new Action<CfxPlayer, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?>(Handle11);
                 case 12: return new Action<CfxPlayer, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?>(Handle12);
+                case 13: return new Action<CfxPlayer, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?, object?>(Handle13);
                 default: throw new NotSupportedException("Remote event argument count is not supported: " + argumentCount);
             }
         }
@@ -61,5 +62,6 @@ namespace RageMP.FiveM.Bridge.Host
         private void Handle10([FromSource] CfxPlayer source, object? a0, object? a1, object? a2, object? a3, object? a4, object? a5, object? a6, object? a7, object? a8, object? a9) => Dispatch(source, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9);
         private void Handle11([FromSource] CfxPlayer source, object? a0, object? a1, object? a2, object? a3, object? a4, object? a5, object? a6, object? a7, object? a8, object? a9, object? a10) => Dispatch(source, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
         private void Handle12([FromSource] CfxPlayer source, object? a0, object? a1, object? a2, object? a3, object? a4, object? a5, object? a6, object? a7, object? a8, object? a9, object? a10, object? a11) => Dispatch(source, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11);
+        private void Handle13([FromSource] CfxPlayer source, object? a0, object? a1, object? a2, object? a3, object? a4, object? a5, object? a6, object? a7, object? a8, object? a9, object? a10, object? a11, object? a12) => Dispatch(source, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
     }
 }
