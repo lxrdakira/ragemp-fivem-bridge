@@ -13,6 +13,20 @@ function formatError(info: any): string {
   return `[browser ${id}] ${kind}${where}: ${msg}${loc}`;
 }
 
+function callCancelable(eventName: string, ...args: any[]): boolean {
+  const events = globalThis.mp?.events;
+  if (!events) return false;
+  let cancelled = false;
+  for (const handler of events.getAllOf?.(eventName) ?? []) {
+    try {
+      if (handler(...args) === true) cancelled = true;
+    } catch (error) {
+      console.error(`[ragemp:${eventName}]`, error);
+    }
+  }
+  return cancelled;
+}
+
 export function setupBrowserPool(pool: BrowserMpPool): void {
   registerBrowserProcChannel();
 
@@ -41,7 +55,7 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
       console.error(
         `[browser ${data.browserId}] failed to load: ${data.url ?? "(unknown url)"}`,
       );
-      globalThis.mp?.events?.call("browserLoadError", browser, data);
+      globalThis.mp?.events?.call("browserLoadingFailed", browser);
     }
     cb({});
   });
@@ -51,13 +65,17 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
     const { event, args } = data;
     if (event === "command") {
       const command = String(args?.[0] ?? "").trim();
-      if (command) emitNet("ragemp:command", command);
+      if (command && !callCancelable("playerCommand", command)) {
+        emitNet("ragemp:command", command);
+      }
       cb({});
       return;
     }
     if (event === "chatMessage") {
       const message = String(args?.[0] ?? "");
-      if (message) emitNet("ragemp:chat:message", message);
+      if (message && !callCancelable("playerChat", message)) {
+        emitNet("ragemp:chat:message", message);
+      }
       cb({});
       return;
     }

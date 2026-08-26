@@ -104,12 +104,13 @@ export function setupConsoleAndChat(mgr: EventManager): void {
     const command = [commandName, ...args].filter((part) => part != null && String(part).length > 0).join(" ");
     if (!command) return;
     mgr.call("consoleCommand", command);
-    mgr.call("playerCommand", command);
-    emitNet("ragemp:command", command);
+    if (!dispatchCancelable(mgr, "playerCommand", command)) {
+      emitNet("ragemp:command", command);
+    }
   });
 
   on("chatMessage", (_source: any, _name: any, message: string) => {
-    mgr.call("playerChat", message);
+    dispatchCancelable(mgr, "playerChat", message);
   });
 }
 
@@ -630,7 +631,7 @@ export function tickLifecycle(mgr: EventManager, ped: number, localPlayer: any):
     !globalThis.mp?.spawnmanager?.isSpawning
   ) {
     mgr.call("playerSpawn", localPlayer);
-    mgr.call("playerResurrect", localPlayer);
+    mgr.call("playerResurrect");
     emitNet("ragemp:playerSpawn");
   }
   rec.wasAlive = !isDead;
