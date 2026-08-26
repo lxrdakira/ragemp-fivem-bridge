@@ -12,6 +12,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Remote event dispatch", TestRemoteEvent),
     ("Static remote event dispatch", TestStaticRemoteEvent),
     ("Duplicate remote event dispatch", TestDuplicateRemoteEvent),
+    ("Ordered async remote event dispatch", TestOrderedAsyncRemoteEvent),
     ("Remote event failure isolation", TestRemoteEventFailureIsolation),
     ("Server event dispatch", TestServerEvent),
     ("Server event failure isolation", TestServerEventFailureIsolation),
@@ -116,6 +117,18 @@ static async Task TestDuplicateRemoteEvent()
     dispatcher.Register(new DuplicateScriptTwo());
     await dispatcher.DispatchRemoteAsync("shared.action", NewPlayer(34), 2);
     Equal(4, DuplicateScript.CallCount);
+}
+
+static async Task TestOrderedAsyncRemoteEvent()
+{
+    OrderedAsyncScript.Sequence.Clear();
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(new OrderedAsyncScript());
+    dispatcher.Register(new OrderedFollowingScript());
+
+    await dispatcher.DispatchRemoteAsync("ordered.signin", NewPlayer(36));
+
+    Equal("identity,legacy", string.Join(',', OrderedAsyncScript.Sequence));
 }
 
 static async Task TestRemoteEventFailureIsolation()
@@ -455,6 +468,24 @@ sealed class DuplicateScriptTwo : Script
 {
     [RemoteEvent("shared.action")]
     private void Handle(Player player, int value) => DuplicateScript.CallCount += value;
+}
+
+sealed class OrderedAsyncScript : Script
+{
+    public static List<string> Sequence { get; } = new();
+
+    [RemoteEvent("ordered.signin")]
+    private async Task Handle(Player player)
+    {
+        await Task.Yield();
+        Sequence.Add("identity");
+    }
+}
+
+sealed class OrderedFollowingScript : Script
+{
+    [RemoteEvent("ordered.signin")]
+    private void Handle(Player player) => OrderedAsyncScript.Sequence.Add("legacy");
 }
 
 sealed class ThrowingRemoteScript : Script

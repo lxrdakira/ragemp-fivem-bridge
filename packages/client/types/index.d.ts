@@ -264,7 +264,8 @@ export interface CheckpointMp extends EntityMp {
 }
 
 export interface CheckpointMpPool extends EntityMpPool<CheckpointMp> {
-  new(type: number, position: Vector3Like, nextPosition: Vector3Like, radius: number, options?: any): CheckpointMp;
+  new(type: number, position: Vector3Like, radius: number, options?: any): CheckpointMp;
+  new(type: number, position: Vector3Like, nextPosition: Vector3Like | null, radius: number, options?: any): CheckpointMp;
   atRemoteId(remoteId: number): CheckpointMp | null;
 }
 
