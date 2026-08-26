@@ -9,4 +9,9 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\..\dotnet\vehicleData.json"
+                      Link="Data\vehicleData.json"
+                      LogicalName="RageMP.FiveM.Bridge.vehicleData.json" />
+  </ItemGroup>
 </Project>

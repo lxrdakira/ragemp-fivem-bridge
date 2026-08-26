@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using GTANetworkAPI;
 using RageMP.FiveM.Bridge;
@@ -10,8 +11,18 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Entity data contract", TestEntityData),
     ("Remote event dispatch", TestRemoteEvent),
     ("Static remote event dispatch", TestStaticRemoteEvent),
+    ("Duplicate remote event dispatch", TestDuplicateRemoteEvent),
     ("Server event dispatch", TestServerEvent),
-    ("NAPI client event runtime", TestRuntime)
+    ("Command dispatch", TestCommand),
+    ("NAPI client event runtime", TestRuntime),
+    ("Player state synchronization", TestPlayerStateSynchronization),
+    ("Network argument serialization", TestNetworkArguments),
+    ("Network entity argument dispatch", TestNetworkEntityDispatch),
+    ("Variadic remote event dispatch", TestVariadicRemoteEvent),
+    ("Optional remote event contract", TestOptionalRemoteContract),
+    ("Broadcast entity synchronization", TestEntityNetworkSync)
+    ,("Native entity synchronization", TestNativeEntitySync),
+    ("Vehicle class catalog", TestVehicleClassCatalog)
 };
 
 var failures = 0;
@@ -39,6 +50,7 @@ static Task TestEntityData()
     player.SetData("uuid", 42);
     player.SetSharedData("dimension", 3u);
     Equal(42, player.GetData<int>("uuid"));
+    Equal("uuid", NAPI.Data.GetAllEntityData(player).Single());
     Equal(3u, player.GetSharedData<uint>("dimension"));
     Equal("dimension", runtime.SharedData[0].Key);
     return Task.CompletedTask;
@@ -72,6 +84,29 @@ static async Task TestStaticRemoteEvent()
     Equal((ushort)33, ExampleScript.StaticPlayerId);
 }
 
+static async Task TestDuplicateRemoteEvent()
+{
+    DuplicateScript.CallCount = 0;
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(new DuplicateScript());
+    dispatcher.Register(new DuplicateScriptTwo());
+    await dispatcher.DispatchRemoteAsync("shared.action", NewPlayer(34), 2);
+    Equal(4, DuplicateScript.CallCount);
+}
+
+static async Task TestCommand()
+{
+    var script = new ExampleScript();
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(script);
+    Equal(2, dispatcher.CommandCount);
+    Equal(true, await dispatcher.DispatchCommandAsync(NewPlayer(41), "/teleport 12 3.5"));
+    Equal("41:12:3.5", script.CommandResult);
+    Equal(true, await dispatcher.DispatchCommandAsync(NewPlayer(42), "announce hello quoted world"));
+    Equal("42:hello quoted world", script.CommandResult);
+    Equal(false, await dispatcher.DispatchCommandAsync(NewPlayer(42), "missing"));
+}
+
 static Task TestRuntime()
 {
     var runtime = new FakeRuntime();
@@ -79,6 +114,123 @@ static Task TestRuntime()
     NAPI.ClientEvent.TriggerClientEvent(NewPlayer(21), "hud.show", true);
     Equal("hud.show", runtime.ClientEvents[0].EventName);
     Equal(true, runtime.ClientEvents[0].Arguments[0]);
+    return Task.CompletedTask;
+}
+
+static Task TestVehicleClassCatalog()
+{
+    Equal(8, NAPI.Vehicle.GetVehicleClass((VehicleHash)6774487u));
+    Equal(-1, NAPI.Vehicle.GetVehicleClass((VehicleHash)uint.MaxValue));
+    return Task.CompletedTask;
+}
+
+static Task TestPlayerStateSynchronization()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    var player = NewPlayer(22);
+    player.ApplyNetworkState(new Vector3(1, 2, 3), 45f, 80, 25, 30, 4);
+    Equal(0, runtime.ClientEvents.Count);
+    Equal(new Vector3(1, 2, 3), player.Position);
+    Equal(80, player.Health);
+    player.Position = new Vector3(4, 5, 6);
+    player.Health = 90;
+    player.Armor = 40;
+    player.Transparency = 128;
+    player.Dimension = 7;
+    Equal("ragemp:setPosition", runtime.ClientEvents[0].EventName);
+    Equal("ragemp:setHealth", runtime.ClientEvents[1].EventName);
+    Equal("ragemp:setArmour", runtime.ClientEvents[2].EventName);
+    Equal("ragemp:setAlpha", runtime.ClientEvents[3].EventName);
+    Equal("ragemp:setDimension", runtime.ClientEvents[4].EventName);
+    return Task.CompletedTask;
+}
+
+static Task TestNetworkArguments()
+{
+    BridgeRuntime.Configure(new FakeRuntime());
+    var player = NewPlayer(25);
+    var vehicle = NAPI.Vehicle.CreateVehicle(123u, new Vector3(), 0f, 0, 0);
+    var output = NetArgumentSerializer.Sanitize(new object[] { player, new object[] { vehicle } });
+    var playerRef = (Dictionary<string, object>)output[0];
+    var nested = (List<object?>)output[1];
+    var vehicleRef = (Dictionary<string, object>)nested[0]!;
+    Equal("player", playerRef["__mpRef"]);
+    Equal((ushort)25, playerRef["id"]);
+    Equal(vehicle.NetworkId, vehicleRef["netId"]);
+    vehicle.Delete();
+    return Task.CompletedTask;
+}
+
+static async Task TestNetworkEntityDispatch()
+{
+    BridgeRuntime.Configure(new FakeRuntime());
+    var vehicle = NAPI.Vehicle.CreateVehicle(124u, new Vector3(), 0f, 0, 0);
+    var script = new EntityRefScript();
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(script);
+    await dispatcher.DispatchRemoteAsync(
+        "vehicle.select",
+        NewPlayer(26),
+        new Dictionary<string, object> { ["__mpRef"] = "vehicle", ["id"] = -1, ["netId"] = vehicle.NetworkId });
+    Equal(vehicle, script.Vehicle);
+    vehicle.Delete();
+}
+
+static async Task TestVariadicRemoteEvent()
+{
+    var script = new VariadicScript();
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(script);
+    Equal("variadic", dispatcher.VariadicRemoteEvents.Single());
+    await dispatcher.DispatchRemoteAsync("variadic", NewPlayer(27), new object?[] { new object[] { 1L, "two" } });
+    Equal(2, script.Count);
+}
+
+static Task TestOptionalRemoteContract()
+{
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(new OptionalRemoteScript());
+    var contract = dispatcher.RemoteEvents.Single();
+    Equal(1, contract.RequiredArgumentCount);
+    Equal(3, contract.ArgumentCount);
+    Equal(7, contract.DefaultArguments[1]);
+    Equal("cash", contract.DefaultArguments[2]);
+    return Task.CompletedTask;
+}
+
+static Task TestEntityNetworkSync()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    var marker = NAPI.Marker.CreateMarker(1, new Vector3(10, 20, 30), new Vector3(), new Vector3(), 2f, new Color(1, 2, 3, 4));
+    Equal("ragemp:markerCreate", runtime.BroadcastEvents[0].EventName);
+    marker.Scale = 3f;
+    Equal("ragemp:markerUpdate", runtime.BroadcastEvents[1].EventName);
+    marker.Delete();
+    Equal("ragemp:markerDestroy", runtime.BroadcastEvents[2].EventName);
+    Equal(false, RAGE.Entities.Markers.All.Contains(marker));
+    return Task.CompletedTask;
+}
+
+static Task TestNativeEntitySync()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    var vehicle = NAPI.Vehicle.CreateVehicle(123u, new Vector3(1, 2, 3), 90f, 1, 2, "TEST");
+    Equal(vehicle.Id + 1000, vehicle.NetworkId);
+    Equal(true, vehicle.NativeHandle != 0);
+    Equal("ragemp:entity:create", runtime.BroadcastEvents[0].EventName);
+    Equal("ragemp:entity:netid", runtime.BroadcastEvents[1].EventName);
+    Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[2].EventName);
+    vehicle.Health = 650f;
+    Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[3].EventName);
+    Equal(650f, vehicle.BodyHealth);
+    Equal(650f, vehicle.EngineHealth);
+    vehicle.Delete();
+    Equal("ragemp:entity:destroy", runtime.BroadcastEvents[4].EventName);
+    Equal(0, vehicle.NetworkId);
+    Equal(false, RAGE.Entities.Vehicles.All.Contains(vehicle));
     return Task.CompletedTask;
 }
 
@@ -95,6 +247,7 @@ sealed class ExampleScript : Script
     public static ushort StaticPlayerId { get; set; }
     public string? LoginResult { get; private set; }
     public bool Started { get; private set; }
+    public string? CommandResult { get; private set; }
 
     [RemoteEvent("auth.login")]
     private void Login(Player player, string login, int age) => LoginResult = $"{login}:{age}:{player.Id}";
@@ -104,17 +257,62 @@ sealed class ExampleScript : Script
 
     [RemoteEvent("anticheat.hitBox")]
     private static void StaticRemote(Player player) => StaticPlayerId = player.Id;
+
+    [Command("teleport")]
+    private void Teleport(Player player, int id, float distance = 1) => CommandResult = $"{player.Id}:{id}:{distance}";
+
+    [Command("announce", GreedyArg = true)]
+    private void Announce(Player player, string text) => CommandResult = $"{player.Id}:{text}";
 }
 
 sealed class FakeRuntime : IBridgeRuntime
 {
     public List<(Player Player, string EventName, object[] Arguments)> ClientEvents { get; } = new();
     public List<(Entity Entity, string Key, object? Value)> SharedData { get; } = new();
+    public List<(string EventName, object[] Arguments)> BroadcastEvents { get; } = new();
     public void Schedule(Action action, long delayMilliseconds = 0) => action();
     public void TriggerClientEvent(Player player, string eventName, object[] arguments) => ClientEvents.Add((player, eventName, arguments));
-    public void TriggerClientEventForAll(string eventName, object[] arguments) { }
+    public void TriggerClientEventForAll(string eventName, object[] arguments) => BroadcastEvents.Add((eventName, arguments));
+    public Task<object?> TriggerClientProcedure(Player player, string procedureName, object[] arguments) => Task.FromResult<object?>(null);
     public void SetSharedData(Entity entity, string key, object? value) => SharedData.Add((entity, key, value));
     public void ResetSharedData(Entity entity, string key) { }
     public void SendChatMessage(Player player, string message) { }
     public void Kick(Player player, string reason) { }
+    public NetworkEntityReference CreateNetworkEntity(Entity entity) => new NetworkEntityReference { Handle = entity.Id, NetworkId = entity.Id + 1000 };
+    public void UpdateNetworkEntity(Entity entity) { }
+    public void DeleteNetworkEntity(Entity entity) { }
+    public void SetPlayerDimension(Player player, uint dimension) { }
+}
+
+sealed class DuplicateScript : Script
+{
+    public static int CallCount { get; set; }
+    [RemoteEvent("shared.action")]
+    private void Handle(Player player, int value) => CallCount += value;
+}
+
+sealed class DuplicateScriptTwo : Script
+{
+    [RemoteEvent("shared.action")]
+    private void Handle(Player player, int value) => DuplicateScript.CallCount += value;
+}
+
+sealed class EntityRefScript : Script
+{
+    public Vehicle? Vehicle { get; private set; }
+    [RemoteEvent("vehicle.select")]
+    private void Select(Player player, Vehicle vehicle) => Vehicle = vehicle;
+}
+
+sealed class VariadicScript : Script
+{
+    public int Count { get; private set; }
+    [RemoteEvent("variadic")]
+    private void Handle(Player player, params object[] args) => Count = args.Length;
+}
+
+sealed class OptionalRemoteScript : Script
+{
+    [RemoteEvent("optional")]
+    private void Handle(Player player, string name, int amount = 7, string payment = "cash") { }
 }

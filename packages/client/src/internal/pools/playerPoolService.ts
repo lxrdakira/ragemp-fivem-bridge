@@ -144,6 +144,16 @@ function setupIdentitySync(pool: PlayerMpPool): void {
 }
 
 function setupServerSync(pool: PlayerMpPool): void {
+  onNet("ragemp:setPosition", (x: number, y: number, z: number) => {
+    if (![x, y, z].every(Number.isFinite)) return;
+    SetEntityCoords(PlayerPedId(), x, y, z, false, false, false, false);
+  });
+
+  onNet("ragemp:setRotation", (x: number, y: number, z: number) => {
+    if (![x, y, z].every(Number.isFinite)) return;
+    SetEntityRotation(PlayerPedId(), x, y, z, 2, true);
+  });
+
   onNet("ragemp:setHealth", (value: number) => {
     SetEntityHealth(PlayerPedId(), rageHealthToGtaPed(value));
   });

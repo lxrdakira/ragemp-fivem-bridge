@@ -1,6 +1,9 @@
 packages:
   - 'packages/**'
 
+allowBuilds:
+  esbuild: true
+
 catalog:
   rimraf: ^6.1.2
   rollup: ^4.57.1

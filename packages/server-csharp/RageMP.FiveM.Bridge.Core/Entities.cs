@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using RageMP.FiveM.Bridge;
 
@@ -10,6 +11,10 @@ namespace GTANetworkAPI
     {
         private readonly ConcurrentDictionary<string, object?> _data = new ConcurrentDictionary<string, object?>();
         private readonly ConcurrentDictionary<string, object?> _sharedData = new ConcurrentDictionary<string, object?>();
+        private Vector3 _position = new Vector3();
+        private Vector3 _rotation = new Vector3();
+        private int _transparency = 255;
+        private uint _dimension;
 
         public Entity(NetHandle handle) => Handle = handle ?? throw new ArgumentNullException(nameof(handle));
 
@@ -18,21 +23,26 @@ namespace GTANetworkAPI
         public int HashCode => GetHashCode();
         public int Value => Handle.Value;
         public ushort Id => Handle.Value;
-        public Vector3 Position { get; set; } = new Vector3();
-        public Vector3 Rotation { get; set; } = new Vector3();
+        public virtual Vector3 Position { get => _position; set { _position = value ?? new Vector3(); SyncNetworkState(); } }
+        public virtual Vector3 Rotation { get => _rotation; set { _rotation = value ?? new Vector3(); SyncNetworkState(); } }
         public float Heading { get => Rotation.Z; set => Rotation = new Vector3(Rotation.X, Rotation.Y, value); }
         public bool IsNull => Handle.IsNull;
         public bool Exists => !IsNull && IsInstanceAlive;
         public bool IsInstanceAlive { get; set; } = true;
         public EntityType Type => Handle.Type;
-        public int Transparency { get; set; } = 255;
-        public uint Dimension { get; set; }
+        public virtual int Transparency { get => _transparency; set { _transparency = value; SyncNetworkState(); } }
+        public virtual uint Dimension { get => _dimension; set { _dimension = value; SyncNetworkState(); } }
         public uint Model { get; protected set; }
         public void SetModelInternal(uint model) => Model = model;
+        public int NativeHandle { get; internal set; }
+        public int NetworkId { get; internal set; }
+        internal bool NetworkPublished { get; set; }
+        protected void SyncNetworkState() => EntityNetworkSync.Update(this);
 
         public bool HasData(string key) => _data.ContainsKey(key);
         public T? GetData<T>(string key) => _data.TryGetValue(key, out var value) ? ConvertValue<T>(value) : default;
         public void SetData<T>(string key, T value) => _data[key] = value;
+        internal string[] GetAllDataKeys() => _data.Keys.ToArray();
         public bool ResetData(string key) => _data.TryRemove(key, out _);
         public void ResetData() => _data.Clear();
 
@@ -53,7 +63,12 @@ namespace GTANetworkAPI
             BridgeRuntime.Current.ResetSharedData(this, key);
         }
 
-        public virtual void Delete() => IsInstanceAlive = false;
+        public virtual void Delete()
+        {
+            if (!IsInstanceAlive) return;
+            IsInstanceAlive = false;
+            EntityNetworkSync.Destroy(this);
+        }
         public bool Equals(Entity? other) => other != null && Handle.Equals(other.Handle);
         public override bool Equals(object? obj) => Equals(obj as Entity);
         public override int GetHashCode() => Handle.GetHashCode();
@@ -71,26 +86,82 @@ namespace GTANetworkAPI
 
     public class Player : Entity
     {
+        private int _health = 100;
+        private int _armor;
+
         public Player(NetHandle handle) : base(handle) { }
         public string Name { get; set; } = string.Empty;
         public string Serial { get; internal set; } = string.Empty;
         public string SocialClubName { get; internal set; } = string.Empty;
         public ulong SocialClubId { get; internal set; }
         public int Ping { get; internal set; }
-        public int Health { get; set; } = 100;
-        public int Armor { get; set; }
+        public override Vector3 Position
+        {
+            get => base.Position;
+            set
+            {
+                base.Position = value;
+                var position = base.Position;
+                TriggerEvent("ragemp:setPosition", position.X, position.Y, position.Z);
+            }
+        }
+        public override Vector3 Rotation
+        {
+            get => base.Rotation;
+            set
+            {
+                base.Rotation = value;
+                var rotation = base.Rotation;
+                TriggerEvent("ragemp:setRotation", rotation.X, rotation.Y, rotation.Z);
+            }
+        }
+        public override int Transparency
+        {
+            get => base.Transparency;
+            set { base.Transparency = value; TriggerEvent("ragemp:setAlpha", value); }
+        }
+        public override uint Dimension
+        {
+            get => base.Dimension;
+            set
+            {
+                base.Dimension = value;
+                BridgeRuntime.Current.SetPlayerDimension(this, value);
+                TriggerEvent("ragemp:setDimension", value);
+            }
+        }
+        public int Health
+        {
+            get => _health;
+            set { _health = value; TriggerEvent("ragemp:setHealth", value); }
+        }
+        public int Armor
+        {
+            get => _armor;
+            set { _armor = value; TriggerEvent("ragemp:setArmour", value); }
+        }
         public bool OutgoingSyncDisabled { get; set; }
         public bool IsInVehicle => Vehicle != null;
-        public Vehicle? Vehicle { get; internal set; }
-        public int VehicleSeat { get; internal set; } = -1;
+        public Vehicle? Vehicle { get; set; }
+        public int VehicleSeat { get; set; } = -1;
         public WeaponHash CurrentWeapon { get; internal set; } = WeaponHash.Unarmed;
         public string Address { get; internal set; } = string.Empty;
         public bool IsInCover { get; internal set; }
 
+        public void ApplyNetworkState(Vector3 position, float heading, int health, int armor, int ping, uint? dimension = null)
+        {
+            base.Position = position;
+            base.Rotation = new Vector3(0f, 0f, heading);
+            _health = health;
+            _armor = armor;
+            Ping = ping;
+            if (dimension.HasValue) base.Dimension = dimension.Value;
+        }
+
         public void TriggerEvent(string eventName, params object[] arguments) =>
             BridgeRuntime.Current.TriggerClientEvent(this, eventName, arguments);
         public Task<object?> TriggerProcedure(string eventName, params object[] arguments) =>
-            System.Threading.Tasks.Task.FromResult<object?>(null);
+            BridgeRuntime.Current.TriggerClientProcedure(this, eventName, arguments);
         public void SendChatMessage(string message) => BridgeRuntime.Current.SendChatMessage(this, message);
         public void SendChatMessage(string sender, string message) => SendChatMessage(sender + ": " + message);
         public void Kick(string reason) => BridgeRuntime.Current.Kick(this, reason);
@@ -98,7 +169,11 @@ namespace GTANetworkAPI
         public void Ban(string reason) => Kick(reason);
         public void Ban() => Kick("Banned");
         public void SendNotification(string message, bool flashing = false) => TriggerEvent("ragemp:notify", message);
-        public void SetIntoVehicle(NetHandle vehicle, int seat) => TriggerEvent("ragemp:putIntoVehicle", vehicle.Value, seat);
+        public void SetIntoVehicle(NetHandle vehicle, int seat)
+        {
+            var target = RAGE.Entities.Vehicles.Get(vehicle.Value);
+            TriggerEvent("ragemp:putIntoVehicle", target?.NetworkId ?? vehicle.Value, seat);
+        }
         public void WarpOutOfVehicle() => TriggerEvent("ragemp:removeFromVehicle");
         public void SetSkin(PedHash model) => SetSkin((uint)model);
         public void SetSkin(uint model) { SetModelInternal(model); TriggerEvent("ragemp:setModel", model); }
@@ -116,22 +191,51 @@ namespace GTANetworkAPI
     public class Vehicle : Entity
     {
         public Vehicle(NetHandle handle) : base(handle) { }
-        public string NumberPlate { get; set; } = string.Empty;
-        public bool EngineStatus { get; set; }
-        public bool Locked { get; set; }
-        public float Health { get; set; } = 1000f;
-        public int PrimaryColor { get; set; }
-        public int SecondaryColor { get; set; }
+        private string _numberPlate = string.Empty;
+        private bool _engineStatus;
+        private bool _locked;
+        private float _health = 1000f;
+        private float _bodyHealth = 1000f;
+        private float _engineHealth = 1000f;
+        private int _primaryColor;
+        private int _secondaryColor;
+        private Color _customPrimaryColor = new Color(0, 0, 0);
+        private Color _customSecondaryColor = new Color(0, 0, 0);
+        private int _numberPlateStyle;
+        private int _wheelType;
+        private int _windowTint;
+        public string NumberPlate { get => _numberPlate; set { _numberPlate = value ?? string.Empty; SyncNetworkState(); } }
+        public bool EngineStatus { get => _engineStatus; set { _engineStatus = value; SyncNetworkState(); } }
+        public bool Locked { get => _locked; set { _locked = value; SyncNetworkState(); } }
+        public float Health
+        {
+            get => _health;
+            set { _health = value; _bodyHealth = value; _engineHealth = value; SyncNetworkState(); }
+        }
+        public float BodyHealth { get => _bodyHealth; set { _bodyHealth = value; SyncNetworkState(); } }
+        public float EngineHealth { get => _engineHealth; set { _engineHealth = value; SyncNetworkState(); } }
+        public int PrimaryColor { get => _primaryColor; set { _primaryColor = value; SyncNetworkState(); } }
+        public int SecondaryColor { get => _secondaryColor; set { _secondaryColor = value; SyncNetworkState(); } }
         public bool Siren { get; internal set; }
         public List<Entity> Occupants { get; } = new List<Entity>();
-        public Color CustomPrimaryColor { get; set; } = new Color(0, 0, 0);
-        public Color CustomSecondaryColor { get; set; } = new Color(0, 0, 0);
-        public int NumberPlateStyle { get; set; }
-        public int WheelType { get; set; }
-        public int WindowTint { get; set; }
+        public Color CustomPrimaryColor { get => _customPrimaryColor; set { _customPrimaryColor = value ?? new Color(0, 0, 0); HasCustomColors = true; SyncNetworkState(); } }
+        public Color CustomSecondaryColor { get => _customSecondaryColor; set { _customSecondaryColor = value ?? new Color(0, 0, 0); HasCustomColors = true; SyncNetworkState(); } }
+        public int NumberPlateStyle { get => _numberPlateStyle; set { _numberPlateStyle = value; SyncNetworkState(); } }
+        public int WheelType { get => _wheelType; set { _wheelType = value; SyncNetworkState(); } }
+        public int WindowTint { get => _windowTint; set { _windowTint = value; SyncNetworkState(); } }
+        internal bool HasCustomColors { get; private set; }
+        internal bool NeonEnabled { get; set; }
+        internal Color NeonColor { get; set; } = new Color(255, 255, 255);
+        internal Dictionary<int, int> Mods { get; } = new Dictionary<int, int>();
         public string DisplayName => Model.ToString();
         public int Class { get; internal set; }
-        public void Repair() => Health = 1000f;
-        public void SetMod(int modType, int modIndex) => BridgeRuntime.Current.TriggerClientEventForAll("ragemp:vehicleMod", new object[] { Value, modType, modIndex });
+        public void Repair() { _health = 1000f; _bodyHealth = 1000f; _engineHealth = 1000f; SyncNetworkState(); }
+        public void ApplyNetworkHealth(float health, float bodyHealth, float engineHealth)
+        {
+            _health = health;
+            _bodyHealth = bodyHealth;
+            _engineHealth = engineHealth;
+        }
+        public void SetMod(int modType, int modIndex) { Mods[modType] = modIndex; SyncNetworkState(); }
     }
 }

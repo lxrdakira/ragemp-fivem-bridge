@@ -11,6 +11,7 @@ type StreamInHandler = (entity: VehicleMp, handle: number, netId: number) => voi
 
 interface VehiclePoolState {
   streamInHandlers: Set<StreamInHandler>;
+  pendingBatches: Map<number, [string, any[]][]>;
 }
 
 const Store = defineInternals<VehiclePoolState>();
@@ -43,16 +44,27 @@ const VEHICLE_DISPATCH: Record<string, (h: number, ...args: any[]) => void> = {
 };
 
 export function setupVehiclePool(pool: object): void {
-  Store.init(pool, { streamInHandlers: new Set() });
+  Store.init(pool, { streamInHandlers: new Set(), pendingBatches: new Map() });
 
   onNet("ragemp:vehicle:batch", (netId: number, items: [string, any[]][]) => {
     const handle = safeGetEntityFromNetId(netId);
-    if (!handle) return;
-    for (const [event, args] of items) {
-      const fn = VEHICLE_DISPATCH[event];
-      if (fn) fn(handle, ...(args || []));
+    if (!handle) {
+      const pending = Store.get(pool).pendingBatches.get(netId) ?? [];
+      pending.push(...(Array.isArray(items) ? items : []));
+      if (pending.length > 256) pending.splice(0, pending.length - 256);
+      Store.get(pool).pendingBatches.set(netId, pending);
+      return;
     }
+    applyBatch(handle, items);
   });
+}
+
+function applyBatch(handle: number, items: [string, any[]][]): void {
+  if (!Array.isArray(items)) return;
+  for (const [event, args] of items) {
+    const fn = VEHICLE_DISPATCH[event];
+    if (fn) fn(handle, ...(args || []));
+  }
 }
 
 export function addVehicleStreamInHandler(pool: object, handler: StreamInHandler): () => void {
@@ -62,6 +74,11 @@ export function addVehicleStreamInHandler(pool: object, handler: StreamInHandler
 }
 
 export function fireVehicleStreamIn(pool: object, entity: VehicleMp, handle: number, netId: number): void {
+  const pending = Store.get(pool).pendingBatches.get(netId);
+  if (pending) {
+    Store.get(pool).pendingBatches.delete(netId);
+    applyBatch(handle, pending);
+  }
   for (const handler of Store.get(pool).streamInHandlers) {
     try { handler(entity, handle, netId); } catch (e) {}
   }

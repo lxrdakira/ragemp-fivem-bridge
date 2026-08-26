@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,9 +30,66 @@ await cp(bridgeCef, join(outDir, "ui/_bridge.js"));
 await cp(join(here, "neptune-ui-host.html"), join(outDir, "ui/host.html"));
 await cp(join(here, "neptune-ui-dev.js"), join(outDir, "client/dev-bootstrap.js"));
 
-// The checked-in client package is almost 10 GB. Junctions keep the local
-// smoke resource instant and ensure every UI asset stays byte-for-byte equal.
-const assetDirs = ["interface", "cef", "soundapi", "sounds", "game", "game_resources"];
+const patchedInterfaceFiles = new Set([
+  "local.html",
+  "cloud.html",
+  "index.html",
+  "cef_vue/index.html",
+  "inventory_vue/index.html",
+  "buildru/bundle.js",
+  "inventory_vue/assets/index-Dd7TP4Ai.js",
+]);
+
+function patchInterfaceSource(source, relativePath) {
+  let patched = source;
+  if (relativePath.toLowerCase().endsWith(".html") && !patched.includes("/ui/_bridge.js")) {
+    const bridgeTag = '<script src="/ui/_bridge.js" data-ragemp-bridge="1"></script>';
+    if (/<head(?:\s[^>]*)?>/i.test(patched)) {
+      patched = patched.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}\n        ${bridgeTag}`);
+    } else {
+      patched = `${bridgeTag}\n${patched}`;
+    }
+  }
+
+  // package:// is a RAGE:MP-only scheme. Keep the original assets untouched,
+  // and translate only the few literals present in the generated FiveM view.
+  return patched.replace(
+    /(["'])package:\/\/interface(\/[^"']*)?\1/g,
+    (_match, _quote, suffix = "") =>
+      `window.__ragempResolvePackageUrl("package://interface${suffix}")`,
+  );
+}
+
+async function createInterfaceOverlay(sourceRoot, targetRoot, relativeDir = "") {
+  await mkdir(targetRoot, { recursive: true });
+  const entries = await readdir(sourceRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+    const source = join(sourceRoot, entry.name);
+    const target = join(targetRoot, entry.name);
+    if (entry.isDirectory()) {
+      const containsPatch = [...patchedInterfaceFiles].some((path) =>
+        path.startsWith(`${relativePath}/`),
+      );
+      if (containsPatch) await createInterfaceOverlay(source, target, relativePath);
+      else await symlink(source, target, process.platform === "win32" ? "junction" : "dir");
+      continue;
+    }
+
+    if (patchedInterfaceFiles.has(relativePath)) {
+      const contents = await readFile(source, "utf8");
+      await writeFile(target, patchInterfaceSource(contents, relativePath), "utf8");
+    } else {
+      await cp(source, target);
+    }
+  }
+}
+
+// The checked-in client package is almost 10 GB. A shallow overlay patches
+// only FiveM-incompatible entry files; junctions keep every other asset exact.
+await createInterfaceOverlay(join(clientPackages, "interface"), join(outDir, "interface"));
+
+const assetDirs = ["cef", "soundapi", "sounds", "game", "game_resources"];
 for (const name of assetDirs) {
   const source = join(clientPackages, name);
   if (existsSync(source)) {
@@ -46,6 +103,8 @@ game 'gta5'
 name 'neptuneevo-ui-dev'
 description 'NeptuneEvo original client and CEF smoke resource'
 version '0.1.0'
+
+dependency 'ragemp-fivem-bridge'
 
 client_scripts {
     '@ragemp-fivem-bridge/client.js',

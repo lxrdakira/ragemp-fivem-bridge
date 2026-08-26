@@ -1,9 +1,10 @@
-import { rehydrateArgsFromNet, STATE_KEY_PREFIX, Vector3 } from "@ragemp-fivem-bridge/shared";
+import { gtaPedHealthToRage, rehydrateArgsFromNet, STATE_KEY_PREFIX, Vector3 } from "@ragemp-fivem-bridge/shared";
 import { EntityInternals, EventEmitterInternals } from "@ragemp-fivem-bridge/shared/internal";
 import { safeGetNetworkId, safeGetEntityFromNetId } from "../utils/netId";
 import { onWorldScan } from "../utils/worldScan";
 import { isVisibleHere } from "../utils/dimension";
 import { resolveNetEntity } from "../utils/netEntity";
+import { sanitizeArgsForNet } from "@ragemp-fivem-bridge/shared";
 import { resolveHandle } from "../internal/pools/streamingService";
 import { playerByServerId } from "../internal/pools/playerPoolService";
 import { ClientEventManagerInternals } from "../internal/eventManagerInternals";
@@ -50,6 +51,29 @@ export function setupBuiltinEvents(mgr: EventManager): void {
   setupStateBags(mgr);
   setupMainTick(mgr);
   setupProcChannel(mgr);
+
+  onNet("ragemp:csharp:variadicEvents", (names: string[]) => {
+    const rec = ClientEventManagerInternals.get(mgr);
+    rec.variadicRemoteEvents.clear();
+    if (Array.isArray(names)) {
+      for (const name of names) if (typeof name === "string") rec.variadicRemoteEvents.add(name);
+    }
+  });
+
+  onNet("ragemp:csharp:eventContracts", (contracts: any[]) => {
+    const rec = ClientEventManagerInternals.get(mgr);
+    rec.remoteEventContracts.clear();
+    if (!Array.isArray(contracts)) return;
+    for (const contract of contracts) {
+      if (!Array.isArray(contract) || typeof contract[0] !== "string") continue;
+      const required = Number(contract[1]);
+      const total = Number(contract[2]);
+      const defaults = Array.isArray(contract[3]) ? contract[3] : [];
+      if (Number.isInteger(required) && Number.isInteger(total) && required >= 0 && total >= required) {
+        rec.remoteEventContracts.set(contract[0], { required, total, defaults });
+      }
+    }
+  });
 
   onNet("ragemp:playerReady", (forResource: string | null) => {
     if (forResource && forResource !== GetCurrentResourceName()) return;
@@ -102,6 +126,15 @@ export function setupGameEvents(mgr: EventManager): void {
       const localPed = PlayerPedId();
 
       if (victim === localPed) {
+        const rec = ClientEventManagerInternals.get(mgr);
+        rec.lastDamageAttackerServerId = -1;
+        rec.lastDamageWeapon = Number(weaponHash ?? 0);
+        try {
+          if (attacker && attacker !== localPed && IsEntityAPed(attacker)) {
+            const attackerPlayer = NetworkGetPlayerIndexFromPed(attacker);
+            if (attackerPlayer >= 0) rec.lastDamageAttackerServerId = GetPlayerServerId(attackerPlayer);
+          }
+        } catch (_) {}
         mgr.call(
           "incomingDamage",
           localPlayer,
@@ -268,6 +301,20 @@ export function setupMainTick(mgr: EventManager): void {
     if (!localPlayer) return;
 
     const playerCoords = GetEntityCoords(ped, true);
+
+    const now = GetGameTimer();
+    if (now - rec.lastPlayerStateSyncAt >= 500) {
+      rec.lastPlayerStateSyncAt = now;
+      emitNet(
+        "ragemp:playerState",
+        playerCoords[0],
+        playerCoords[1],
+        playerCoords[2],
+        GetEntityHeading(ped),
+        gtaPedHealthToRage(GetEntityHealth(ped)),
+        GetPedArmour(ped),
+      );
+    }
 
     tickCheckpoints(mgr, ped, localPlayer, playerCoords);
     tickWaypoint(mgr, ped, localPlayer, playerCoords);
@@ -618,6 +665,14 @@ export function tickModelAndHealth(mgr: EventManager, ped: number): void {
     const armourLoss = rec.trackedArmour - currentArmour;
     if (healthLoss > 0 || armourLoss > 0) {
       emitNet("ragemp:playerDamage", healthLoss, armourLoss);
+      emitNet(
+        "ragemp:csharp:playerDamage",
+        rec.lastDamageAttackerServerId,
+        rec.lastDamageWeapon,
+        Math.max(0, healthLoss),
+      );
+      rec.lastDamageAttackerServerId = -1;
+      rec.lastDamageWeapon = 0;
     }
   }
   rec.trackedHealth = currentHealth;
@@ -781,7 +836,7 @@ export function setupProcChannel(mgr: EventManager): void {
     }
     try {
       const result = await handler(...args);
-      emitNet("ragemp:callProcResult", reqId, null, result);
+      emitNet("ragemp:callProcResult", reqId, null, sanitizeArgsForNet([result])[0]);
     } catch (err) {
       emitNet("ragemp:callProcResult", reqId, String(err), null);
     }

@@ -1,6 +1,7 @@
 import { Entity, Vector3 } from "@ragemp-fivem-bridge/shared";
 import { EntityInternals } from "@ragemp-fivem-bridge/shared/internal";
 import { toVec3 } from "../utils/vec";
+import { safeGetNetworkId } from "../utils/netId";
 
 export class EntityMpBase extends Entity {
   constructor(token: symbol, id: number, type: string, handle: number | null) {
@@ -31,6 +32,10 @@ export class EntityMpBase extends Entity {
 
   override get model(): number {
     return GetEntityModel(this.handle);
+  }
+
+  get netId(): number {
+    return safeGetNetworkId(this.handle);
   }
 
   get velocity(): Vector3 {

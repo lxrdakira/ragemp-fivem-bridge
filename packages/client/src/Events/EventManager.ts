@@ -22,7 +22,18 @@ export class EventManager extends EventEmitter {
   }
 
   callRemote(eventName: string, ...args: any[]): void {
-    emitNet(eventName, ...sanitizeArgsForNet(args));
+    const rec = ClientEventManagerInternals.get(this);
+    const contract = rec.remoteEventContracts.get(eventName);
+    if (contract && args.length >= contract.required && args.length < contract.total) {
+      args = args.slice();
+      while (args.length < contract.total) args.push(contract.defaults[args.length]);
+    }
+    const sanitized = sanitizeArgsForNet(args);
+    if (rec.variadicRemoteEvents.has(eventName)) {
+      emitNet(eventName, sanitized);
+    } else {
+      emitNet(eventName, ...sanitized);
+    }
   }
 
   addProc(procName: string, handler: (...args: any[]) => any): void {

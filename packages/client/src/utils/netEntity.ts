@@ -1,4 +1,5 @@
 import type { Entity } from "@ragemp-fivem-bridge/shared";
+import { playerByServerId } from "../internal/pools/playerPoolService";
 
 export function resolveNetEntity(type: string, id: number, netId?: number): Entity | null | undefined {
   const mp = globalThis.mp;
@@ -6,7 +7,7 @@ export function resolveNetEntity(type: string, id: number, netId?: number): Enti
 
   switch (type) {
     case "player":
-      return mp.players?.at?.(id) ?? null;
+      return (netId !== undefined && netId !== null ? playerByServerId(netId) : null) ?? mp.players?.at?.(id) ?? null;
     case "colshape":
       return mp.colshapes?.at?.(id) ?? null;
     case "checkpoint":
@@ -35,6 +36,10 @@ export function resolveNetEntity(type: string, id: number, netId?: number): Enti
       }
       return mp.objects?.at?.(id) ?? null;
     case "ped":
+      if (netId !== undefined && netId !== null && mp.peds?.atNetId) {
+        const byNet = mp.peds.atNetId(netId);
+        if (byNet) return byNet;
+      }
       return mp.peds?.at?.(id) ?? null;
     default:
       return null;

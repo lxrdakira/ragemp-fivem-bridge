@@ -429,6 +429,17 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
     _putVehTimer = timer;
   });
 
+  onNet("ragemp:removeFromVehicle", () => {
+    const ped = PlayerPedId();
+    if (!IsPedInAnyVehicle(ped, false)) return;
+    TaskLeaveVehicle(ped, GetVehiclePedIsIn(ped, false), 16);
+  });
+
+  onNet("ragemp:deleteWorldProp", (model: number, x: number, y: number, z: number, radius: number) => {
+    if (!model || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    CreateModelHide(x, y, z, Math.max(0, radius || 0), model, true);
+  });
+
   on("onResourceStop", (name: string) => {
     if (name !== GetCurrentResourceName()) return;
     if (_modelTimer) clearInterval(_modelTimer);

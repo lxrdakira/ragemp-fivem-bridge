@@ -26,6 +26,9 @@ export interface ClientEventManagerRec {
   isTryingToExitVehicle: boolean;
   trackedHealth: number;
   trackedArmour: number;
+  lastDamageAttackerServerId: number;
+  lastDamageWeapon: number;
+  lastPlayerStateSyncAt: number;
   wasShooting: boolean;
   playerReadyFired: boolean;
   playerReadyWaiting: boolean;
@@ -34,6 +37,8 @@ export interface ClientEventManagerRec {
   connectedPlayers: Set<unknown>;
   talkingPlayers: Set<unknown>;
   activeSet: Set<unknown>;
+  variadicRemoteEvents: Set<string>;
+  remoteEventContracts: Map<string, { required: number; total: number; defaults: any[] }>;
   entityOwners: Map<number, number>;
   vehicleHealth: Map<number, { body: number; engine: number; dead: boolean; netId: number }>;
   vehicleHealthSeen: Set<number>;
@@ -74,6 +79,9 @@ export function initClientEventManagerInternals(mgr: object): ClientEventManager
     isTryingToExitVehicle: false,
     trackedHealth: -1,
     trackedArmour: -1,
+    lastDamageAttackerServerId: -1,
+    lastDamageWeapon: 0,
+    lastPlayerStateSyncAt: 0,
     wasShooting: false,
     playerReadyFired: false,
     playerReadyWaiting: false,
@@ -82,6 +90,8 @@ export function initClientEventManagerInternals(mgr: object): ClientEventManager
     connectedPlayers: new Set(),
     talkingPlayers: new Set(),
     activeSet: new Set(),
+    variadicRemoteEvents: new Set(),
+    remoteEventContracts: new Map(),
     entityOwners: new Map(),
     vehicleHealth: new Map(),
     vehicleHealthSeen: new Set(),

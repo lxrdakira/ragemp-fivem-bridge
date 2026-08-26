@@ -28,6 +28,9 @@ export class PlayerMp extends PedMpBase {
   get ped(): number {
     return GetPlayerPed(PlayerInternals.get(this).playerIndex);
   }
+  override get netId(): number {
+    return getPlayerServerId(this);
+  }
   override get handle(): number {
     return GetPlayerPed(PlayerInternals.get(this).playerIndex);
   }

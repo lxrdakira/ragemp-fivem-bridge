@@ -6,7 +6,22 @@ namespace GTANetworkAPI
         public ColShape(NetHandle handle) : base(handle) { }
         public event ColShapeEvent? OnEntityEnterColShape;
         public event ColShapeEvent? OnEntityExitColShape;
-        public virtual bool IsPointWithin(Vector3 point) => false;
+        public string ShapeType { get; internal set; } = "sphere";
+        public float Radius { get; internal set; }
+        public float Height { get; internal set; }
+        public float Width { get; internal set; }
+        public float Depth { get; internal set; }
+        public virtual bool IsPointWithin(Vector3 point)
+        {
+            var dx = point.X - Position.X;
+            var dy = point.Y - Position.Y;
+            var dz = point.Z - Position.Z;
+            if (ShapeType == "circle") return dx * dx + dy * dy <= Radius * Radius;
+            if (ShapeType == "tube") return dx * dx + dy * dy <= Radius * Radius && dz >= 0 && dz <= Height;
+            if (ShapeType == "rectangle") return dx >= 0 && dx <= Width && dy >= 0 && dy <= Height;
+            if (ShapeType == "cuboid") return dx >= 0 && dx <= Width && dy >= 0 && dy <= Depth && dz >= 0 && dz <= Height;
+            return dx * dx + dy * dy + dz * dz <= Radius * Radius;
+        }
         public void RaiseEnter(Player player) => OnEntityEnterColShape?.Invoke(this, player);
         public void RaiseExit(Player player) => OnEntityExitColShape?.Invoke(this, player);
     }
@@ -14,11 +29,12 @@ namespace GTANetworkAPI
     public class Blip : Entity
     {
         public Blip(NetHandle handle) : base(handle) { }
-        public int Color { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public bool ShortRange { get; set; }
-        public uint Sprite { get; set; }
-        public float Scale { get; set; } = 1f;
+        private int _color; private string _name = string.Empty; private bool _shortRange; private uint _sprite; private float _scale = 1f;
+        public int Color { get => _color; set { _color = value; SyncNetworkState(); } }
+        public string Name { get => _name; set { _name = value ?? string.Empty; SyncNetworkState(); } }
+        public bool ShortRange { get => _shortRange; set { _shortRange = value; SyncNetworkState(); } }
+        public uint Sprite { get => _sprite; set { _sprite = value; SyncNetworkState(); } }
+        public float Scale { get => _scale; set { _scale = value; SyncNetworkState(); } }
         public bool RouteVisible { get; set; }
         public int RouteColor { get; set; }
     }
@@ -26,19 +42,22 @@ namespace GTANetworkAPI
     public class Marker : Entity
     {
         public Marker(NetHandle handle) : base(handle) { }
-        public uint MarkerType { get; set; }
-        public float Scale { get; set; } = 1f;
-        public Vector3 Direction { get; set; } = new Vector3();
-        public Color Color { get; set; } = new Color(255, 255, 255);
+        private uint _markerType; private float _scale = 1f; private Vector3 _direction = new Vector3(); private Color _color = new Color(255, 255, 255);
+        public uint MarkerType { get => _markerType; set { _markerType = value; SyncNetworkState(); } }
+        public float Scale { get => _scale; set { _scale = value; SyncNetworkState(); } }
+        public Vector3 Direction { get => _direction; set { _direction = value ?? new Vector3(); SyncNetworkState(); } }
+        public Color Color { get => _color; set { _color = value ?? new Color(); SyncNetworkState(); } }
     }
 
     public class TextLabel : Entity
     {
         public TextLabel(NetHandle handle) : base(handle) { }
-        public string Text { get; set; } = string.Empty;
-        public Color Color { get; set; } = new Color(255, 255, 255);
-        public bool Seethrough { get; set; }
-        public float Range { get; set; }
+        private string _text = string.Empty; private Color _color = new Color(255, 255, 255); private bool _seethrough; private float _range;
+        public string Text { get => _text; set { _text = value ?? string.Empty; SyncNetworkState(); } }
+        public Color Color { get => _color; set { _color = value ?? new Color(); SyncNetworkState(); } }
+        public bool Seethrough { get => _seethrough; set { _seethrough = value; SyncNetworkState(); } }
+        public float Range { get => _range; set { _range = value; SyncNetworkState(); } }
+        public int Font { get; internal set; }
     }
 
     public class Checkpoint : Entity

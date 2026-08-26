@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using System.Reflection;
 using GTANetworkAPI;
+using API = CitizenFX.Core.Native.API;
 
 namespace RageMP.FiveM.Bridge.Host
 {
@@ -28,17 +29,37 @@ namespace RageMP.FiveM.Bridge.Host
             return removed;
         }
 
+        public Player? Get(ushort id) => _players.TryGetValue(id, out var player) ? player : null;
+
         private Player Create(ushort id, CitizenFX.Core.Player source)
         {
             var handle = new NetHandle(id, EntityType.Player);
             var type = _playerType ?? (_playerType = FindMostDerivedPlayerType());
             var player = (Player?)Activator.CreateInstance(type, handle) ?? new Player(handle);
             player.Name = source.Name;
-            player.Ping = source.Ping;
             player.Serial = source.Identifiers["license"] ?? string.Empty;
             player.SocialClubName = source.Name;
+            player.SocialClubId = HashIdentifier(player.Serial);
+            player.Address = API.GetPlayerEndpoint(source.Handle) ?? string.Empty;
+            var dimension = unchecked((uint)API.GetPlayerRoutingBucket(source.Handle));
+            try
+            {
+                var position = source.Character.Position;
+                player.ApplyNetworkState(new Vector3(position.X, position.Y, position.Z), 0f, 100, 0, source.Ping, dimension);
+            }
+            catch { player.ApplyNetworkState(new Vector3(), 0f, 100, 0, source.Ping, dimension); }
             RAGE.Entities.Players.Register(player);
             return player;
+        }
+
+        private static ulong HashIdentifier(string value)
+        {
+            unchecked
+            {
+                ulong hash = 14695981039346656037UL;
+                foreach (var character in value ?? string.Empty) { hash ^= character; hash *= 1099511628211UL; }
+                return hash;
+            }
         }
 
         private static Type FindMostDerivedPlayerType()

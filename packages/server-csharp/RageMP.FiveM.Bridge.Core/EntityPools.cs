@@ -54,6 +54,7 @@ namespace RAGE
         public IReadOnlyCollection<T> All => _entities.Values.ToArray();
 
         public T? Get(ushort id) => _entities.TryGetValue(id, out var entity) ? entity : null;
+        public T? GetByNetworkId(int networkId) => _entities.Values.FirstOrDefault(entity => entity.NetworkId == networkId);
 
         public T GetOrCreate(ushort id)
         {
