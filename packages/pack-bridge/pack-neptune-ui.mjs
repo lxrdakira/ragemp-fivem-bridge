@@ -92,7 +92,9 @@ async function createInterfaceOverlay(sourceRoot, targetRoot, relativeDir = "") 
 // only FiveM-incompatible entry files; junctions keep every other asset exact.
 await createInterfaceOverlay(join(clientPackages, "interface"), join(outDir, "interface"));
 
-const assetDirs = ["cef", "soundapi", "sounds", "game", "game_resources"];
+// Game DLC/map archives are intentionally outside the migration scope. Keep
+// only browser-facing files required by the original CEF and sound UI.
+const assetDirs = ["cef", "soundapi", "sounds"];
 for (const name of assetDirs) {
   const source = join(clientPackages, name);
   if (existsSync(source)) {
@@ -124,9 +126,7 @@ files {
     'interface/**/*',
     'cef/**/*',
     'soundapi/**/*',
-    'sounds/**/*',
-    'game/**/*',
-    'game_resources/**/*'
+    'sounds/**/*'
 }
 `;
 
