@@ -22,11 +22,11 @@ namespace RageMP.FiveM.Bridge.Host
         public void TriggerClientEvent(RagePlayer player, string eventName, object[] arguments)
         {
             var target = RequirePlayer(player);
-            BaseScript.TriggerClientEvent(target, eventName, NetArgumentSerializer.Sanitize(arguments));
+            _owner.TriggerClientEventWhenReady(target, eventName, NetArgumentSerializer.Sanitize(arguments));
         }
 
         public void TriggerClientEventForAll(string eventName, object[] arguments) =>
-            BaseScript.TriggerClientEvent(eventName, NetArgumentSerializer.Sanitize(arguments));
+            _owner.TriggerClientEventForReadyPlayers(eventName, NetArgumentSerializer.Sanitize(arguments));
 
         public Task<object?> TriggerClientProcedure(RagePlayer player, string procedureName, object[] arguments) =>
             _owner.CallClientProcedure(RequirePlayer(player), procedureName, NetArgumentSerializer.Sanitize(arguments));

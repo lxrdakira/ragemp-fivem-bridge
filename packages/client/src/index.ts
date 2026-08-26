@@ -483,6 +483,7 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
 
   on("onResourceStop", (name: string) => {
     if (name !== GetCurrentResourceName()) return;
+    emitNet("ragemp:clientNotReady", name);
     if (_modelTimer) clearInterval(_modelTimer);
     if (_animTimer) clearInterval(_animTimer);
     if (_putVehTimer) clearInterval(_putVehTimer);

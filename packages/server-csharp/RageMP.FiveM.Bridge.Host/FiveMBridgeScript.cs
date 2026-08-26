@@ -19,6 +19,9 @@ namespace RageMP.FiveM.Bridge.Host
         private bool _initialized;
         private readonly HashSet<ushort> _connectedPlayers = new HashSet<ushort>();
         private readonly Dictionary<string, string> _pendingClientReady = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _readyClientHandles = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _bootstrappingClientHandles = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<(string EventName, object[] Arguments)>> _pendingClientEvents = new Dictionary<string, List<(string, object[])>>(StringComparer.Ordinal);
         private string[] _variadicRemoteEvents = Array.Empty<string>();
         private object[] _remoteEventContracts = Array.Empty<object>();
         private readonly Dictionary<int, (float Body, float Engine)> _vehicleHealth = new Dictionary<int, (float Body, float Engine)>();
@@ -43,6 +46,7 @@ namespace RageMP.FiveM.Bridge.Host
             EventHandlers["ragemp:csharp:playerDamage"] += new Action<CitizenFX.Core.Player, int, uint, int>(OnPlayerDamage);
             EventHandlers["ragemp:playerWeaponChange"] += new Action<CitizenFX.Core.Player, uint, uint>(OnPlayerWeaponChange);
             EventHandlers["ragemp:playerReady"] += new Action<CitizenFX.Core.Player, string>(OnPlayerReady);
+            EventHandlers["ragemp:clientNotReady"] += new Action<CitizenFX.Core.Player, string>(OnClientNotReady);
             EventHandlers["ragemp:playerState"] += new Action<CitizenFX.Core.Player, float, float, float, float, int, int, bool, int, int>(OnPlayerState);
             EventHandlers["ragemp:playerEnterVehicle"] += new Action<CitizenFX.Core.Player, int, int>(OnPlayerEnterVehicle);
             EventHandlers["ragemp:playerExitVehicle"] += new Action<CitizenFX.Core.Player, int>(OnPlayerExitVehicle);
@@ -58,6 +62,31 @@ namespace RageMP.FiveM.Bridge.Host
         }
 
         internal CitizenFX.Core.Player? FindCitizenPlayer(ushort id) => Players[(int)id];
+
+        internal void TriggerClientEventWhenReady(CitizenFX.Core.Player player, string eventName, object[] arguments)
+        {
+            if (_readyClientHandles.Contains(player.Handle) || _bootstrappingClientHandles.Contains(player.Handle))
+            {
+                BaseScript.TriggerClientEvent(player, eventName, arguments);
+                return;
+            }
+
+            if (!_pendingClientEvents.TryGetValue(player.Handle, out var pending))
+            {
+                pending = new List<(string, object[])>();
+                _pendingClientEvents[player.Handle] = pending;
+            }
+            // A broken client must not be able to retain unbounded server
+            // memory while never completing its resource handshake.
+            if (pending.Count >= 4096) pending.RemoveAt(0);
+            pending.Add((eventName, arguments));
+        }
+
+        internal void TriggerClientEventForReadyPlayers(string eventName, object[] arguments)
+        {
+            foreach (var player in Players)
+                TriggerClientEventWhenReady(player, eventName, arguments);
+        }
 
         internal Task Schedule(Action action, long delayMilliseconds)
         {
@@ -197,6 +226,9 @@ namespace RageMP.FiveM.Bridge.Host
         private void OnPlayerDropped([FromSource] CitizenFX.Core.Player source, string reason)
         {
             _pendingClientReady.Remove(source.Handle);
+            _readyClientHandles.Remove(source.Handle);
+            _bootstrappingClientHandles.Remove(source.Handle);
+            _pendingClientEvents.Remove(source.Handle);
             foreach (var pair in _pendingClientProcedures)
             {
                 if (pair.Value.PlayerHandle != source.Handle || !_pendingClientProcedures.TryRemove(pair.Key, out var pending)) continue;
@@ -257,27 +289,46 @@ namespace RageMP.FiveM.Bridge.Host
             SendClientBootstrap(source, resourceName);
         }
 
+        private void OnClientNotReady([FromSource] CitizenFX.Core.Player source, string resourceName)
+        {
+            _readyClientHandles.Remove(source.Handle);
+            _bootstrappingClientHandles.Remove(source.Handle);
+        }
+
         private void SendClientBootstrap(CitizenFX.Core.Player source, string resourceName)
         {
-            EntityNetworkSync.SendAll(_players.GetOrCreate(source));
-            var playerSnapshot = _players.All
-                .Select(player => (object)new object[] { (int)player.Id, (int)player.Id })
-                .ToArray();
-            BaseScript.TriggerClientEvent(source, "ragemp:player:snapshot", new object[] { playerSnapshot });
-            BaseScript.TriggerClientEvent(source, "ragemp:csharp:variadicEvents", new object[] { _variadicRemoteEvents });
-            BaseScript.TriggerClientEvent(source, "ragemp:csharp:eventContracts", new object[] { _remoteEventContracts });
-            BaseScript.TriggerClientEvent(source, "ragemp:setAutoRespawn", NAPI.Server.AutoRespawnAfterDeath);
-            BaseScript.TriggerClientEvent(source, "ragemp:setWeather", NAPI.World.WeatherName);
-            BaseScript.TriggerClientEvent(source, "ragemp:setTime", NAPI.World.Hour, NAPI.World.Minute, NAPI.World.Second);
-            foreach (var ipl in NAPI.World.GetRequestedIpls())
-                BaseScript.TriggerClientEvent(source, "ragemp:requestIpl", ipl);
-            foreach (var deletion in NAPI.World.GetWorldPropDeletions())
-                BaseScript.TriggerClientEvent(source, "ragemp:deleteWorldProp", deletion.Model, deletion.Position.X, deletion.Position.Y, deletion.Position.Z, deletion.Radius);
-            // The consuming client resource waits for this acknowledgement to
-            // raise RAGE:MP's local playerReady event. The standalone JS host
-            // already mirrors it; the C# host must do the same after contracts
-            // and entity snapshots have been delivered.
-            BaseScript.TriggerClientEvent(source, "ragemp:playerReady", resourceName ?? string.Empty);
+            _bootstrappingClientHandles.Add(source.Handle);
+            try
+            {
+                EntityNetworkSync.SendAll(_players.GetOrCreate(source));
+                var playerSnapshot = _players.All
+                    .Select(player => (object)new object[] { (int)player.Id, (int)player.Id })
+                    .ToArray();
+                BaseScript.TriggerClientEvent(source, "ragemp:player:snapshot", new object[] { playerSnapshot });
+                BaseScript.TriggerClientEvent(source, "ragemp:csharp:variadicEvents", new object[] { _variadicRemoteEvents });
+                BaseScript.TriggerClientEvent(source, "ragemp:csharp:eventContracts", new object[] { _remoteEventContracts });
+                BaseScript.TriggerClientEvent(source, "ragemp:setAutoRespawn", NAPI.Server.AutoRespawnAfterDeath);
+                BaseScript.TriggerClientEvent(source, "ragemp:setWeather", NAPI.World.WeatherName);
+                BaseScript.TriggerClientEvent(source, "ragemp:setTime", NAPI.World.Hour, NAPI.World.Minute, NAPI.World.Second);
+                foreach (var ipl in NAPI.World.GetRequestedIpls())
+                    BaseScript.TriggerClientEvent(source, "ragemp:requestIpl", ipl);
+                foreach (var deletion in NAPI.World.GetWorldPropDeletions())
+                    BaseScript.TriggerClientEvent(source, "ragemp:deleteWorldProp", deletion.Model, deletion.Position.X, deletion.Position.Y, deletion.Position.Z, deletion.Radius);
+                // The consuming client resource waits for this acknowledgement
+                // to raise RAGE:MP's local playerReady event.
+                BaseScript.TriggerClientEvent(source, "ragemp:playerReady", resourceName ?? string.Empty);
+            }
+            finally
+            {
+                _bootstrappingClientHandles.Remove(source.Handle);
+            }
+            _readyClientHandles.Add(source.Handle);
+            if (_pendingClientEvents.TryGetValue(source.Handle, out var pending))
+            {
+                _pendingClientEvents.Remove(source.Handle);
+                foreach (var clientEvent in pending)
+                    BaseScript.TriggerClientEvent(source, clientEvent.EventName, clientEvent.Arguments);
+            }
         }
 
         private void OnPlayerState([FromSource] CitizenFX.Core.Player source, float x, float y, float z, float heading, int health, int armor, bool isInCover, int vehicleNetworkId, int nativeSeat)
