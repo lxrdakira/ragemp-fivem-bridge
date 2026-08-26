@@ -101,19 +101,15 @@ export function setupBuiltinEvents(mgr: EventManager): void {
 
 export function setupConsoleAndChat(mgr: EventManager): void {
   on("__cfx_internal:commandFallback", (commandName: string, ...args: any[]) => {
-    mgr.call("consoleCommand", commandName, ...args);
-    const localPlayer = globalThis.mp?.players?.local;
-    if (localPlayer) {
-      mgr.call("playerCommand", localPlayer, commandName, ...args);
-    }
     const command = [commandName, ...args].filter((part) => part != null && String(part).length > 0).join(" ");
-    if (command) emitNet("ragemp:command", command);
+    if (!command) return;
+    mgr.call("consoleCommand", command);
+    mgr.call("playerCommand", command);
+    emitNet("ragemp:command", command);
   });
 
   on("chatMessage", (_source: any, _name: any, message: string) => {
-    const localPlayer = globalThis.mp?.players?.local;
-    if (!localPlayer) return;
-    mgr.call("playerChat", localPlayer, message);
+    mgr.call("playerChat", message);
   });
 }
 
@@ -141,12 +137,14 @@ export function setupGameEvents(mgr: EventManager): void {
       const posY = args[3] ?? 0;
       const posZ = args[4] ?? 0;
       const explosionType = args[1] ?? -1;
+      const sourceEntity = resolveDamageEntity(Number(args[0] ?? 0));
+      const sourcePlayer = resolveDamageSourcePlayer(Number(args[0] ?? 0), sourceEntity) ?? localPlayer;
       const cancelled = dispatchCancelable(
         mgr,
         "explosion",
-        localPlayer,
-        { x: posX, y: posY, z: posZ },
+        sourcePlayer,
         explosionType,
+        new Vector3(posX, posY, posZ),
       );
       if (cancelled && typeof CancelEvent === "function") CancelEvent();
       return;
@@ -159,13 +157,18 @@ export function setupGameEvents(mgr: EventManager): void {
       const damageAmount = args[3] ?? 0;
       const localPed = PlayerPedId();
       if (attacker === localPed) {
-        mgr.call(
+        const sourceEntity = resolveDamageEntity(attacker) ?? localPlayer;
+        const targetEntity = resolveDamageEntity(target);
+        const cancelled = dispatchCancelable(
+          mgr,
           "meleeActionDamage",
-          localPlayer,
-          target,
+          sourceEntity,
+          targetEntity,
           weaponHash,
           damageAmount,
+          false,
         );
+        if (cancelled && typeof CancelEvent === "function") CancelEvent();
       }
       return;
     }
@@ -175,18 +178,22 @@ export function setupGameEvents(mgr: EventManager): void {
       const impactX = args[1] ?? 0;
       const impactY = args[2] ?? 0;
       const impactZ = args[3] ?? 0;
-      const targetEntity = args[4] ?? 0;
-      mgr.call(
-        "playerWeaponShot",
-        localPlayer,
-        { x: impactX, y: impactY, z: impactZ },
-        targetEntity,
-      );
-      mgr.call(
+      const position = new Vector3(impactX, impactY, impactZ);
+      const pedPos = GetEntityCoords(PlayerPedId(), false);
+      const dx = impactX - pedPos[0];
+      const dy = impactY - pedPos[1];
+      const dz = impactZ - pedPos[2];
+      const length = Math.hypot(dx, dy, dz) || 1;
+      const cancelled = dispatchCancelable(
+        mgr,
         "projectile",
-        { x: impactX, y: impactY, z: impactZ },
+        localPlayer,
         weaponHash,
+        0,
+        position,
+        new Vector3(dx / length, dy / length, dz / length),
       );
+      if (cancelled && typeof CancelEvent === "function") CancelEvent();
       return;
     }
   });
@@ -556,6 +563,7 @@ export function initTick(mgr: EventManager, ped: number, cache: { players: numbe
     rec.lastVehicleHandle = GetVehiclePedIsIn(ped, false);
   }
   rec.lastWeaponHash = GetSelectedPedWeapon(ped);
+  rec.lastWeaponAmmo = GetAmmoInPedWeapon(ped, rec.lastWeaponHash);
   rec.trackedHealth = GetEntityHealth(ped);
   rec.trackedArmour = GetPedArmour(ped);
   rec.lastHornState = false;
@@ -903,24 +911,94 @@ export function tickModelAndHealth(mgr: EventManager, ped: number): void {
 export function tickActions(mgr: EventManager, ped: number, localPlayer: any): void {
   const rec = ClientEventManagerInternals.get(mgr);
   const isShooting = IsPedShooting(ped);
-  if (isShooting && !rec.wasShooting) {
+  const weaponHash = GetSelectedPedWeapon(ped);
+  const weaponAmmo = GetAmmoInPedWeapon(ped, weaponHash);
+  if (isShooting && (!rec.wasShooting || (rec.lastWeaponAmmo >= 0 && weaponAmmo < rec.lastWeaponAmmo))) {
     const [hit, impactCoords] = GetPedLastWeaponImpactCoord(ped);
     const targetPos = hit
-      ? { x: impactCoords[0], y: impactCoords[1], z: impactCoords[2] }
-      : null;
-    mgr.call("playerWeaponShot", localPlayer, targetPos, 0);
+      ? new Vector3(impactCoords[0], impactCoords[1], impactCoords[2])
+      : undefined;
+    let targetEntity: any = undefined;
+    try {
+      const [hasTarget, targetHandle] = GetEntityPlayerIsFreeAimingAt(PlayerId());
+      if (hasTarget && targetHandle) targetEntity = resolveDamageEntity(targetHandle) ?? undefined;
+    } catch (_) {}
+    dispatchCancelable(mgr, "playerWeaponShot", targetPos, targetEntity);
   }
   rec.wasShooting = isShooting;
+  rec.lastWeaponAmmo = weaponAmmo;
 
-  const isClicking = IsControlPressed(0, 24);
-  if (isClicking && !rec.wasClicking) {
-    const [cursorX, cursorY] = GetNuiCursorPosition();
-    mgr.call("click", { x: cursorX ?? 0, y: cursorY ?? 0 }, "down");
-  } else if (!isClicking && rec.wasClicking) {
-    const [cursorX, cursorY] = GetNuiCursorPosition();
-    mgr.call("click", { x: cursorX ?? 0, y: cursorY ?? 0 }, "up");
+  const cursorVisible = !!globalThis.mp?.gui?.cursor?.visible;
+  const isLeftClicking = cursorVisible && (IsControlPressed(0, 24) || IsDisabledControlPressed(0, 24));
+  const isRightClicking = cursorVisible && (IsControlPressed(0, 25) || IsDisabledControlPressed(0, 25));
+  if (isLeftClicking !== rec.wasLeftClicking) {
+    dispatchRageClick(mgr, isLeftClicking ? "down" : "up", "left", ped);
   }
-  rec.wasClicking = isClicking;
+  if (isRightClicking !== rec.wasRightClicking) {
+    dispatchRageClick(mgr, isRightClicking ? "down" : "up", "right", ped);
+  }
+  rec.wasLeftClicking = isLeftClicking;
+  rec.wasRightClicking = isRightClicking;
+}
+
+function dispatchRageClick(mgr: EventManager, upOrDown: "up" | "down", leftOrRight: "left" | "right", ped: number): void {
+  const [cursorX, cursorY] = GetNuiCursorPosition();
+  const [screenX, screenY] = GetActiveScreenResolution();
+  const width = Math.max(1, screenX || 1);
+  const height = Math.max(1, screenY || 1);
+  const x = cursorX ?? 0;
+  const y = cursorY ?? 0;
+  const relativeX = x / width;
+  const relativeY = y / height;
+
+  const cam = GetGameplayCamCoord();
+  const rot = GetGameplayCamRot(2);
+  const pitch = rot[0] * Math.PI / 180;
+  const yaw = rot[2] * Math.PI / 180;
+  const forward = {
+    x: -Math.sin(yaw) * Math.cos(pitch),
+    y: Math.cos(yaw) * Math.cos(pitch),
+    z: Math.sin(pitch),
+  };
+  const right = { x: Math.cos(yaw), y: Math.sin(yaw), z: 0 };
+  const up = {
+    x: -Math.sin(pitch) * Math.sin(yaw),
+    y: Math.sin(pitch) * Math.cos(yaw),
+    z: Math.cos(pitch),
+  };
+  const fovScale = Math.tan(GetGameplayCamFov() * Math.PI / 360);
+  const horizontal = (relativeX * 2 - 1) * fovScale * (width / height);
+  const vertical = (1 - relativeY * 2) * fovScale;
+  let dx = forward.x + right.x * horizontal + up.x * vertical;
+  let dy = forward.y + right.y * horizontal + up.y * vertical;
+  let dz = forward.z + right.z * horizontal + up.z * vertical;
+  const length = Math.hypot(dx, dy, dz) || 1;
+  dx /= length;
+  dy /= length;
+  dz /= length;
+
+  const ray = StartShapeTestRay(
+    cam[0], cam[1], cam[2],
+    cam[0] + dx * 1000, cam[1] + dy * 1000, cam[2] + dz * 1000,
+    -1,
+    ped,
+    7,
+  );
+  const [, hit, hitCoords, , hitEntity] = GetShapeTestResult(ray);
+  const worldPosition = hit
+    ? new Vector3(hitCoords[0], hitCoords[1], hitCoords[2])
+    : new Vector3(cam[0] + dx * 1000, cam[1] + dy * 1000, cam[2] + dz * 1000);
+  mgr.call(
+    "click",
+    x,
+    y,
+    upOrDown,
+    leftOrRight,
+    relativeX,
+    relativeY,
+    worldPosition,
+    hit ? hitEntity : 0,
+  );
 }
 
 export function tickStreaming(mgr: EventManager, cache: { players: number[]; vehicles: number[]; peds: number[] }, localPlayer: any): void {

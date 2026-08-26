@@ -30,9 +30,11 @@ export interface ClientEventManagerRec {
   lastDamageWeapon: number;
   lastPlayerStateSyncAt: number;
   wasShooting: boolean;
+  lastWeaponAmmo: number;
   playerReadyFired: boolean;
   playerReadyWaiting: boolean;
-  wasClicking: boolean;
+  wasLeftClicking: boolean;
+  wasRightClicking: boolean;
   streamedPlayers: Set<unknown>;
   connectedPlayers: Set<unknown>;
   talkingPlayers: Set<unknown>;
@@ -83,9 +85,11 @@ export function initClientEventManagerInternals(mgr: object): ClientEventManager
     lastDamageWeapon: 0,
     lastPlayerStateSyncAt: 0,
     wasShooting: false,
+    lastWeaponAmmo: -1,
     playerReadyFired: false,
     playerReadyWaiting: false,
-    wasClicking: false,
+    wasLeftClicking: false,
+    wasRightClicking: false,
     streamedPlayers: new Set(),
     connectedPlayers: new Set(),
     talkingPlayers: new Set(),
