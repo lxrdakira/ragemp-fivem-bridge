@@ -1,5 +1,5 @@
 import { createRuntime } from "./core.js";
-import { log, resourceName, preventReload } from "./transport.js";
+import { log, resourceName, preventReload, toClient } from "./transport.js";
 
 export function startView(): void {
   const { handlePayload, getSelfId } = createRuntime();
@@ -7,6 +7,7 @@ export function startView(): void {
   log("view ready in", typeof window !== "undefined" ? window.location.href : "?", "resource =", resourceName());
 
   let readyAcked = false;
+  let directReadyAnnounced = false;
   function announceReady(attempt: number): void {
     if (readyAcked) return;
     if (!window.parent || window.parent === window) return;
@@ -55,6 +56,17 @@ export function startView(): void {
       if (inner.type === "__ragemp:assignId") readyAcked = true;
       log("view recv", inner.type || (inner.event ? "event:" + inner.event : inner.proc ? "proc:" + inner.proc : "msg"));
       handlePayload(inner as Parameters<typeof handlePayload>[0]);
+      if (
+        inner.type === "__ragemp:assignId" &&
+        !directReadyAnnounced &&
+        (!window.parent || window.parent === window)
+      ) {
+        directReadyAnnounced = true;
+        void toClient("ragemp:browserLifecycle", {
+          browserId: String(inner.browserId ?? ""),
+          event: "domReady",
+        });
+      }
     }
   });
 

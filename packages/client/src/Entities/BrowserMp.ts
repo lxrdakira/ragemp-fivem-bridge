@@ -9,6 +9,9 @@ import {
   getChatBrowser,
   setChatBrowser,
   callBrowserProc,
+  sendHeadlessPayload,
+  reloadHeadlessBrowser,
+  destroyHeadlessBrowser,
   setBrowserProcTimeout,
   getBrowserProcTimeout,
 } from "../internal/browserInternals";
@@ -26,6 +29,10 @@ function postFocusState(browserId: number, active: boolean): void {
 }
 
 export class BrowserMp extends Entity {
+  headlessTextureDict = "";
+  headlessTextureName = "";
+  headlessTextureHeightScale = 1;
+
   constructor(token: symbol, id: number, url: string) {
     super(token, id, "browser");
     initBrowserInternals(this, url);
@@ -42,13 +49,15 @@ export class BrowserMp extends Entity {
   set active(value: boolean) {
     const rec = BrowserInternals.get(this);
     rec.active = !!value;
+    if (rec.headless) return;
     setBrowserFocus("browser:" + this.id, rec.active);
     postFocusState(this.id, rec.active);
   }
 
   execute(code: string): void {
     if (BrowserInternals.get(this).destroyed) return;
-    SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:exec", browserId: this.id, code }));
+    if (!sendHeadlessPayload(this, { type: "__ragemp:exec", code }))
+      SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:exec", browserId: this.id, code }));
   }
 
   executeCached(code: string): void {
@@ -83,6 +92,7 @@ export class BrowserMp extends Entity {
   set orderId(value: number) {
     const rec = BrowserInternals.get(this);
     rec.orderId = value | 0;
+    if (rec.headless) return;
     if (rec.destroyed || typeof SendNuiMessage !== "function") return;
     SendNuiMessage(
       JSON.stringify({
@@ -105,31 +115,35 @@ export class BrowserMp extends Entity {
   }
 
   reload(ignoreCache: boolean): void {
-    SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:reload", browserId: this.id, ignoreCache: !!ignoreCache }));
+    if (!reloadHeadlessBrowser(this))
+      SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:reload", browserId: this.id, ignoreCache: !!ignoreCache }));
   }
 
   call(eventName: string, ...args: any[]): void {
     if (BrowserInternals.get(this).destroyed) return;
-    SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:event", browserId: this.id, event: eventName, args }));
+    if (!sendHeadlessPayload(this, { event: eventName, args }))
+      SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:event", browserId: this.id, event: eventName, args }));
   }
 
   callProc<T = any>(procName: string, ...args: any[]): Promise<T> {
     if (BrowserInternals.get(this).destroyed) return Promise.reject(new Error("Browser destroyed"));
-    return callBrowserProc<T>(this.id, procName, args);
+    return callBrowserProc<T>(this, procName, args);
   }
 
   override destroy(): void {
     const rec = BrowserInternals.get(this);
     if (rec.destroyed) return;
     rec.destroyed = true;
-    if (rec.active) {
+    const headless = rec.headless !== null;
+    if (rec.active && !headless) {
       rec.active = false;
       setBrowserFocus("browser:" + this.id, false);
     }
-    postFocusState(this.id, false);
+    if (!headless) postFocusState(this.id, false);
     const pool = globalThis.mp?.browsers;
     if (pool && getChatBrowser(pool) === this) setChatBrowser(pool, null);
-    SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:destroy", browserId: this.id }));
+    if (!destroyHeadlessBrowser(this))
+      SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:destroy", browserId: this.id }));
     if (pool) {
       removeFromPool(pool, this.id);
       freeClientId(pool, this.id);

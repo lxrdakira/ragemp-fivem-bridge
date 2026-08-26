@@ -27,14 +27,24 @@ function callCancelable(eventName: string, ...args: any[]): boolean {
   return cancelled;
 }
 
+function findBrowser(pool: BrowserMpPool, id: unknown) {
+  const numericId = typeof id === "number" ? id : Number(id);
+  return Number.isFinite(numericId) ? pool.at(numericId) : null;
+}
+
 export function setupBrowserPool(pool: BrowserMpPool): void {
   registerBrowserProcChannel();
+
+  on("onResourceStop", (name: string) => {
+    if (name !== GetCurrentResourceName()) return;
+    for (const browser of pool.toArray()) browser.destroy();
+  });
 
   if (typeof RegisterNuiCallbackType !== "function") return;
 
   RegisterNuiCallbackType("ragemp:browserError");
   on("__cfx_nui:ragemp:browserError", (data: any, cb: (result: Record<string, never>) => void) => {
-    const browser = pool.at(data && data.browserId);
+    const browser = findBrowser(pool, data && data.browserId);
     console.error(formatError(data));
     if (data && data.stack) console.error(data.stack);
     globalThis.mp?.events?.call("browserError", browser ?? null, data);
@@ -43,7 +53,7 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
 
   RegisterNuiCallbackType("ragemp:browserLifecycle");
   on("__cfx_nui:ragemp:browserLifecycle", (data: any, cb: (result: Record<string, never>) => void) => {
-    const browser = pool.at(data && data.browserId);
+    const browser = findBrowser(pool, data && data.browserId);
     if (!browser) {
       cb({});
       return;

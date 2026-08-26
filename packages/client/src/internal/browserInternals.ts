@@ -12,6 +12,15 @@ export interface BrowserInternalsRec {
   orderId: number;
   domReady: boolean;
   cachedExec: string[];
+  headless: HeadlessBrowserState | null;
+}
+
+export interface HeadlessBrowserState {
+  dui: number;
+  resolvedUrl: string;
+  textureDict: string;
+  textureName: string;
+  readyTimer: ReturnType<typeof setInterval> | null;
 }
 
 export const BrowserInternals = defineInternals<BrowserInternalsRec>();
@@ -27,6 +36,7 @@ export function initBrowserInternals(browser: BrowserMp, url: string): BrowserIn
     orderId: 0,
     domReady: false,
     cachedExec: [],
+    headless: null,
   });
 }
 
@@ -34,11 +44,12 @@ export function browserDomReady(browser: BrowserMp): void {
   const rec = BrowserInternals.get(browser);
   rec.domReady = true;
   if (rec.cachedExec.length === 0) return;
-  for (const code of rec.cachedExec) browser.execute(code);
+  for (const code of rec.cachedExec.splice(0)) browser.execute(code);
 }
 
 export function applyBrowserPointerEvents(browser: BrowserMp): void {
   const rec = BrowserInternals.get(browser);
+  if (rec.headless) return;
   if (rec.destroyed || typeof SendNuiMessage !== "function") return;
   SendNuiMessage(
     JSON.stringify({
@@ -47,6 +58,64 @@ export function applyBrowserPointerEvents(browser: BrowserMp): void {
       enabled: rec.inputEnabled && rec.mouseInputEnabled,
     })
   );
+}
+
+export function setHeadlessBrowser(browser: BrowserMp, state: HeadlessBrowserState): void {
+  BrowserInternals.get(browser).headless = state;
+}
+
+export function sendHeadlessPayload(browser: BrowserMp, payload: Record<string, unknown>): boolean {
+  const state = BrowserInternals.get(browser).headless;
+  if (!state || !state.dui) return false;
+  SendDuiMessage(state.dui, JSON.stringify({ __ragempForward: true, inner: payload }));
+  return true;
+}
+
+export function beginHeadlessReadyHandshake(browser: BrowserMp): void {
+  const rec = BrowserInternals.get(browser);
+  const state = rec.headless;
+  if (!state || !state.dui) return;
+  if (state.readyTimer !== null) clearInterval(state.readyTimer);
+  let attempts = 0;
+  state.readyTimer = setInterval(() => {
+    attempts++;
+    if (rec.destroyed || rec.domReady) {
+      clearInterval(state.readyTimer!);
+      state.readyTimer = null;
+      return;
+    }
+    if (IsDuiAvailable(state.dui)) {
+      sendHeadlessPayload(browser, {
+        type: "__ragemp:assignId",
+        browserId: String(browser.id),
+        resource: GetCurrentResourceName(),
+      });
+    }
+    if (attempts < 300) return;
+    clearInterval(state.readyTimer!);
+    state.readyTimer = null;
+    globalThis.mp?.events?.call("browserLoadingFailed", browser);
+  }, 100);
+}
+
+export function reloadHeadlessBrowser(browser: BrowserMp): boolean {
+  const rec = BrowserInternals.get(browser);
+  const state = rec.headless;
+  if (!state || !state.dui) return false;
+  rec.domReady = false;
+  SetDuiUrl(state.dui, state.resolvedUrl);
+  beginHeadlessReadyHandshake(browser);
+  return true;
+}
+
+export function destroyHeadlessBrowser(browser: BrowserMp): boolean {
+  const state = BrowserInternals.get(browser).headless;
+  if (!state) return false;
+  if (state.readyTimer !== null) clearInterval(state.readyTimer);
+  if (state.dui) DestroyDui(state.dui);
+  state.readyTimer = null;
+  state.dui = 0;
+  return true;
 }
 
 interface BrowserPoolRec {
@@ -84,11 +153,13 @@ export function getBrowserProcTimeout(): number {
   return procTimeout;
 }
 
-export function callBrowserProc<T = any>(browserId: number, procName: string, args: any[]): Promise<T> {
+export function callBrowserProc<T = any>(browser: BrowserMp, procName: string, args: any[]): Promise<T> {
+  const browserId = browser.id;
   const requestId = ++procCounter;
   return new Promise<T>((resolve, reject) => {
     pendingProcs.set(requestId, { resolve, reject });
-    SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:proc", browserId, proc: procName, requestId, args }));
+    if (!sendHeadlessPayload(browser, { proc: procName, requestId, args }))
+      SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:proc", browserId, proc: procName, requestId, args }));
     setTimeout(() => {
       if (pendingProcs.has(requestId)) {
         pendingProcs.delete(requestId);
@@ -119,16 +190,21 @@ export function registerBrowserProcChannel(): void {
   RegisterNuiCallbackType("ragemp:cefProc");
   on("__cfx_nui:ragemp:cefProc", (data: any, cb: (result: any) => void) => {
     const { procName, requestId, args, browserId } = data;
+    const browser = globalThis.mp?.browsers?.at(Number(browserId));
+    const sendResult = (payload: Record<string, unknown>) => {
+      if (browser && sendHeadlessPayload(browser, payload)) return;
+      SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:procResult", browserId, ...payload }));
+    };
     const handler = globalThis.mp?.events?._procs?.get(procName);
     if (!handler) {
-      SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:procResult", browserId, requestId, error: `Unknown proc: ${procName}` }));
+      sendResult({ procResult: true, requestId, error: `Unknown proc: ${procName}` });
       cb({});
       return;
     }
     Promise.resolve()
       .then(() => handler(...(args ?? [])))
-      .then((result) => SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:procResult", browserId, requestId, result })))
-      .catch((err) => SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:procResult", browserId, requestId, error: String(err) })));
+      .then((result) => sendResult({ procResult: true, requestId, result }))
+      .catch((err) => sendResult({ procResult: true, requestId, error: String(err) }));
     cb({});
   });
 }

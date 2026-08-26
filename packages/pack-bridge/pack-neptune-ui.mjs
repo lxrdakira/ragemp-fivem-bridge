@@ -98,8 +98,21 @@ const assetDirs = ["cef", "soundapi", "sounds"];
 for (const name of assetDirs) {
   const source = join(clientPackages, name);
   if (existsSync(source)) {
-    if (portable) await cp(source, join(outDir, name), { recursive: true });
-    else await symlink(source, join(outDir, name), process.platform === "win32" ? "junction" : "dir");
+    // DUI pages do not have the manager iframe available to inject the bridge
+    // at runtime, so browser HTML entry points receive the bridge tag in the
+    // generated resource. Non-HTML files are copied byte-for-byte.
+    const copyBrowserAssets = async (from, to) => {
+      await mkdir(to, { recursive: true });
+      for (const entry of await readdir(from, { withFileTypes: true })) {
+        const entrySource = join(from, entry.name);
+        const entryTarget = join(to, entry.name);
+        if (entry.isDirectory()) await copyBrowserAssets(entrySource, entryTarget);
+        else if (entry.isFile() && entry.name.toLowerCase().endsWith(".html"))
+          await writeFile(entryTarget, patchInterfaceSource(await readFile(entrySource, "utf8"), entry.name), "utf8");
+        else if (entry.isFile()) await cp(entrySource, entryTarget);
+      }
+    };
+    await copyBrowserAssets(source, join(outDir, name));
   }
 }
 
