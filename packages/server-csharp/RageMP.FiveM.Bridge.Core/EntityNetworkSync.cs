@@ -220,12 +220,12 @@ namespace GTANetworkAPI
             }
             else if (entity is TextLabel label)
             {
-                data["text"] = label.Text; AddColor(data, label.Color); data["drawDistance"] = label.Range; data["size"] = label.Size; data["los"] = label.Seethrough; data["font"] = label.Font;
+                data["text"] = label.Text; AddColor(data, label.Color); data["drawDistance"] = label.Range; data["size"] = label.Size; data["los"] = !label.Seethrough; data["font"] = label.Font;
             }
             else if (entity is Blip blip)
             {
                 data["sprite"] = blip.Sprite; data["color"] = blip.Color; data["scale"] = blip.Scale; data["name"] = blip.Name;
-                data["shortRange"] = blip.ShortRange; data["alpha"] = blip.Transparency; data["drawDistance"] = 0f; data["rotation"] = 0;
+                data["shortRange"] = blip.ShortRange; data["alpha"] = blip.Transparency; data["drawDistance"] = blip.DrawDistance; data["rotation"] = blip.BlipRotation;
             }
             else if (entity is Checkpoint checkpoint)
             {

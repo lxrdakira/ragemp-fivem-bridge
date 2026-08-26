@@ -10,6 +10,7 @@ import {
 } from "../internal/pools/vehiclePoolService";
 import { startStreaming, setStreamHandlers, registerLocalStreamed, removeFromStreamingPool } from "../internal/pools/streamingService";
 import { applyVehicleColorOption } from "../utils/vehicleSync";
+import { registerNativeDimensionEntity } from "../utils/nativeEntityDimension";
 
 export class VehicleMpPool extends StreamingPool<VehicleMp> {
   constructor() {
@@ -51,6 +52,8 @@ export class VehicleMpPool extends StreamingPool<VehicleMp> {
       if (options.locked !== undefined) vehicle.locked = options.locked;
       if (options.numberPlate !== undefined) vehicle.numberPlate = options.numberPlate;
       if (options.color !== undefined) applyVehicleColorOption(handle, options.color);
+
+      registerNativeDimensionEntity(vehicle);
 
       globalThis.mp?.events?.call("entityStreamIn", vehicle);
     };

@@ -4,7 +4,9 @@ export function normalizeDimension(value: number | null | undefined): number {
   if (value === undefined || value === null) return 0;
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
-  return n < 0 ? 0 : Math.floor(n);
+  // RAGE:MP uses -1 on the client and uint.MaxValue on the server for an
+  // entity that is visible in every dimension. Keep both spellings aligned.
+  return n < 0 ? GLOBAL_DIMENSION : Math.floor(n);
 }
 
 export function isGlobalDimension(value: number | null | undefined): boolean {

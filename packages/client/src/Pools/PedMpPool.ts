@@ -5,6 +5,7 @@ import { getPedPool } from "../utils/worldScan";
 import { StreamingInternals } from "../internal/streamingInternals";
 import { setupPedPool } from "../internal/pools/pedPoolService";
 import { startStreaming, registerLocalStreamed, removeFromStreamingPool } from "../internal/pools/streamingService";
+import { registerNativeDimensionEntity } from "../utils/nativeEntityDimension";
 
 export class PedMpPool extends StreamingPool<PedMp> {
     constructor() {
@@ -18,14 +19,20 @@ export class PedMpPool extends StreamingPool<PedMp> {
         );
     }
 
-    new(model: number | string, position: { x: number; y: number; z: number }, options: any = {}, callback?: ((ped: PedMp) => void) | null): PedMp {
+    new(model: number | string, position: { x: number; y: number; z: number }, options: any = {}, dimensionOrCallback?: number | ((ped: PedMp) => void) | null): PedMp {
+        let callback: ((ped: PedMp) => void) | null = null;
         if (typeof options === "number") {
-            options = { heading: options };
+            options = {
+                heading: options,
+                dimension: typeof dimensionOrCallback === "number" ? dimensionOrCallback : 0,
+            };
+            if (typeof dimensionOrCallback === "function") callback = dimensionOrCallback;
         } else if (typeof options === "function") {
             callback = options;
             options = {};
+        } else if (typeof dimensionOrCallback === "function") {
+            callback = dimensionOrCallback;
         }
-        if (typeof callback !== "function") callback = null;
 
         const hash = typeof model === "string" ? GetHashKey(model) : model;
         const ped = new PedMp(CONSTRUCT, 0, 0);
@@ -56,6 +63,9 @@ export class PedMpPool extends StreamingPool<PedMp> {
 
             SetModelAsNoLongerNeeded(hash);
 
+            ped.dimension = options.dimension ?? 0;
+            registerNativeDimensionEntity(ped);
+
             if (callback) {
                 try {
                     callback(ped);
@@ -63,6 +73,7 @@ export class PedMpPool extends StreamingPool<PedMp> {
                     console.error(`[ragemp-bridge] mp.peds.new callback error: ${e}`);
                 }
             }
+            globalThis.mp?.events?.call("entityStreamIn", ped);
         };
 
         if (HasModelLoaded(hash)) {

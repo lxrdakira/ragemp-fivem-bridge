@@ -19,10 +19,12 @@ export class TextLabelMpPool extends Pool<TextLabelMp> {
     rec.position = position instanceof Vector3 ? position : new Vector3(position.x, position.y, position.z);
 
     if (options.color !== undefined) {
-      rec.r = options.color.r ?? 255;
-      rec.g = options.color.g ?? 255;
-      rec.b = options.color.b ?? 255;
-      rec.a = options.color.a ?? 255;
+      const color = options.color;
+      const array = Array.isArray(color);
+      rec.r = (array ? color[0] : color.r) ?? 255;
+      rec.g = (array ? color[1] : color.g) ?? 255;
+      rec.b = (array ? color[2] : color.b) ?? 255;
+      rec.a = (array ? color[3] : color.a) ?? 255;
     }
     if (options.drawDistance !== undefined) rec.drawDistance = options.drawDistance;
     if (options.font !== undefined) rec.font = options.font;

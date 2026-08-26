@@ -2,6 +2,7 @@ import { Entity, Vector3 } from "@ragemp-fivem-bridge/shared";
 import { EntityInternals } from "@ragemp-fivem-bridge/shared/internal";
 import { toVec3 } from "../utils/vec";
 import { safeGetNetworkId } from "../utils/netId";
+import { setNativeEntityDimension, setNativeEntityVisible } from "../utils/nativeEntityDimension";
 
 export class EntityMpBase extends Entity {
   constructor(token: symbol, id: number, type: string, handle: number | null) {
@@ -32,6 +33,13 @@ export class EntityMpBase extends Entity {
 
   override get model(): number {
     return GetEntityModel(this.handle);
+  }
+
+  override get dimension(): number {
+    return EntityInternals.get(this).dimension;
+  }
+  override set dimension(value: number) {
+    setNativeEntityDimension(this, value);
   }
 
   get netId(): number {
@@ -192,7 +200,7 @@ export class EntityMpBase extends Entity {
   }
 
   setVisible(toggle: boolean, p2: boolean): void {
-    SetEntityVisible(this.handle, !!toggle, !!p2);
+    setNativeEntityVisible(this, !!toggle);
   }
 
   setCollision(toggle: boolean, keepPhysics?: boolean): void {

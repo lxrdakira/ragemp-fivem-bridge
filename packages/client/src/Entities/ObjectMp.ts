@@ -1,6 +1,7 @@
 import { EntityMpBase } from "./EntityMpBase";
 import { ObjectInternals, initObjectInternals } from "../internal/objectInternals";
 import { removeFromObjectPool } from "../internal/pools/objectPoolService";
+import { setNativeEntityVisible } from "../utils/nativeEntityDimension";
 
 export class ObjectMp extends EntityMpBase {
   constructor(token: symbol, id: number, handle: number | null) {
@@ -12,7 +13,7 @@ export class ObjectMp extends EntityMpBase {
     return !IsEntityVisible(this.handle);
   }
   set hidden(value: boolean) {
-    SetEntityVisible(this.handle, !value, false);
+    setNativeEntityVisible(this, !value);
   }
 
   get isWeak(): boolean {

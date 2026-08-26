@@ -29,12 +29,14 @@ namespace GTANetworkAPI
     public class Blip : Entity
     {
         public Blip(NetHandle handle) : base(handle) { }
-        private int _color; private string _name = string.Empty; private bool _shortRange; private uint _sprite; private float _scale = 1f;
+        private int _color; private string _name = string.Empty; private bool _shortRange; private uint _sprite; private float _scale = 1f; private float _drawDistance; private short _blipRotation;
         public int Color { get => _color; set { _color = value; SyncNetworkState(); } }
         public string Name { get => _name; set { _name = value ?? string.Empty; SyncNetworkState(); } }
         public bool ShortRange { get => _shortRange; set { _shortRange = value; SyncNetworkState(); } }
         public uint Sprite { get => _sprite; set { _sprite = value; SyncNetworkState(); } }
         public float Scale { get => _scale; set { _scale = value; SyncNetworkState(); } }
+        public float DrawDistance { get => _drawDistance; internal set { _drawDistance = value; SyncNetworkState(); } }
+        public short BlipRotation { get => _blipRotation; internal set { _blipRotation = value; SyncNetworkState(); } }
         public bool RouteVisible { get; set; }
         public int RouteColor { get; set; }
     }

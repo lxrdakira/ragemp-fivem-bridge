@@ -6,6 +6,7 @@ import { StreamingInternals, streamEntityState } from "../internal/streamingInte
 import { ObjectInternals } from "../internal/objectInternals";
 import { setupObjectPool } from "../internal/pools/objectPoolService";
 import { startNetworked, registerLocalStreamed, setStreamHandlers } from "../internal/pools/streamingService";
+import { registerNativeDimensionEntity } from "../utils/nativeEntityDimension";
 
 export class ObjectMpPool extends StreamingPool<ObjectMp> {
   constructor() {
@@ -42,6 +43,8 @@ export class ObjectMpPool extends StreamingPool<ObjectMp> {
     if (options.dimension !== undefined) {
       obj.dimension = options.dimension;
     }
+
+    registerNativeDimensionEntity(obj);
 
     registerLocalStreamed(this, obj);
     StreamingInternals.get(this).handleToEntity.set(handle, obj);
@@ -99,6 +102,8 @@ export class ObjectMpPool extends StreamingPool<ObjectMp> {
     if (options.dimension !== undefined) {
       obj.dimension = options.dimension;
     }
+
+    registerNativeDimensionEntity(obj);
 
     registerLocalStreamed(this, obj);
     StreamingInternals.get(this).handleToEntity.set(handle, obj);

@@ -34,6 +34,12 @@ export class BlipMp extends Entity {
   get shortRange(): boolean { return BlipInternals.get(this).shortRange ?? false; }
   set shortRange(value: boolean) { BlipInternals.get(this).shortRange = value; SetBlipAsShortRange(this.handle, value); }
 
+  get drawDistance(): number { return BlipInternals.get(this).drawDistance; }
+  set drawDistance(value: number) { BlipInternals.get(this).drawDistance = Math.max(0, value || 0); applyBlipVisibility(this); }
+
+  get rotation(): number { return BlipInternals.get(this).rotation; }
+  set rotation(value: number) { BlipInternals.get(this).rotation = value || 0; SetBlipRotation(this.handle, Math.round(value || 0)); }
+
   override get alpha(): number { return BlipInternals.get(this).alpha; }
   override set alpha(value: number) { BlipInternals.get(this).alpha = value; applyBlipVisibility(this); }
 
@@ -56,7 +62,7 @@ export class BlipMp extends Entity {
   isMissionCreator(): boolean { return IsMissionCreatorBlip(this.handle); }
   isOnMinimap(): boolean { return IsBlipOnMinimap(this.handle); }
   isShortRange(): boolean { return IsBlipShortRange(this.handle); }
-  setAlpha(alpha: number): void { SetBlipAlpha(this.handle, alpha); }
+  setAlpha(alpha: number): void { this.alpha = alpha; }
   setAsFriendly(toggle: boolean): void { SetBlipAsFriendly(this.handle, !!toggle); }
   setAsMissionCreator(toggle: boolean): void { SetBlipAsMissionCreatorBlip(this.handle, !!toggle); }
   setAsShortRange(toggle: boolean): void { SetBlipAsShortRange(this.handle, !!toggle); }

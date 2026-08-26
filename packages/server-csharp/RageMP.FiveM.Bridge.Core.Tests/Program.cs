@@ -311,7 +311,20 @@ static Task TestEntityNetworkSync()
     Equal("ragemp:labelCreate", runtime.BroadcastEvents[3].EventName);
     var labelPayload = (Dictionary<string, object>)runtime.BroadcastEvents[3].Arguments[0];
     Equal(0.8f, labelPayload["size"]);
+    Equal(true, labelPayload["los"]);
     label.Delete();
+    var tube = NAPI.ColShape.CreateCylinderColShape(new Vector3(5, 6, 10), 2f, 4f);
+    Equal(true, tube.IsPointWithin(new Vector3(5, 6, 10)));
+    Equal(true, tube.IsPointWithin(new Vector3(5, 6, 14)));
+    Equal(false, tube.IsPointWithin(new Vector3(5, 6, 9.9f)));
+    tube.Delete();
+    var blip = NAPI.Blip.CreateBlip(7, new Vector3(8, 9, 10), 1.25f, 4, "Range", 180, 75f, true, 45, 12);
+    Equal("ragemp:blipCreate", runtime.BroadcastEvents.Last().EventName);
+    var blipPayload = (Dictionary<string, object>)runtime.BroadcastEvents.Last().Arguments[0];
+    Equal(75f, blipPayload["drawDistance"]);
+    Equal((short)45, blipPayload["rotation"]);
+    Equal((uint)12, blipPayload["dimension"]);
+    blip.Delete();
     return Task.CompletedTask;
 }
 

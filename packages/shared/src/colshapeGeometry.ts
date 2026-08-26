@@ -36,9 +36,9 @@ export function colshapeContains(shapeType: string, position: Vector3Like, param
 	  const dy = point.y - position.y;
 	  const r = (params.radius ?? 0) + m;
 	  if (dx * dx + dy * dy > r * r) return false;
-	  const half = (params.height ?? 0) / 2;
+	  const height = params.height ?? 0;
 	  const dz = point.z - position.z;
-	  return dz >= -half - m && dz <= half + m;
+	  return dz >= -m && dz <= height + m;
 	}
 
     case "rectangle": {

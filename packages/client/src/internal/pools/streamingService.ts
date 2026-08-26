@@ -9,6 +9,7 @@ import {
   type StreamingInternalsRec,
 } from "../streamingInternals";
 import { hydrateSharedData } from "../../utils/sharedData";
+import { unregisterNativeDimensionEntity } from "../../utils/nativeEntityDimension";
 
 export const LOCAL_STREAM_ID_BASE = 2_000_000_000;
 
@@ -162,11 +163,18 @@ export function bindHandle(pool: object, remoteId: number, handle: number, netId
   }
   EntityInternals.get(entity).handle = handle;
   rec.handleToEntity.set(handle, entity);
-  try { hydrateSharedData(entity, globalThis.Entity(handle).state); } catch (_) {}
   if (!entities.has(entity.id)) {
+    // Populate dynamic properties before entityCreated, then replay the same
+    // state through addDataHandler only after pool existence checks can pass.
+    let stateBag: any = null;
+    try { stateBag = globalThis.Entity(handle).state; } catch (_) {}
+    if (stateBag) hydrateSharedData(entity, stateBag, false);
     poolAdd(pool, entity);
+    if (stateBag) hydrateSharedData(entity, stateBag, true);
     globalThis.mp?.events?.call("entityStreamIn", entity);
     rec.onStreamIn?.(entity, handle, netId);
+  } else {
+    try { hydrateSharedData(entity, globalThis.Entity(handle).state); } catch (_) {}
   }
   return entity;
 }
@@ -288,6 +296,7 @@ export function removeFromStreamingPool(pool: object, id: number): void {
   const rec = StreamingInternals.get(pool);
   const entity = rec.byLocal.get(id) ?? poolStore(pool).entities.get(id);
   if (entity) {
+    unregisterNativeDimensionEntity(entity);
     if (entity.handle) rec.handleToEntity.delete(entity.handle);
     const state = streamEntityState(entity);
     if (state.netId) rec.netIdToRemote.delete(state.netId);

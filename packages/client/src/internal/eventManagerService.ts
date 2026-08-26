@@ -10,7 +10,7 @@ import { playerByServerId } from "../internal/pools/playerPoolService";
 import { ClientEventManagerInternals } from "../internal/eventManagerInternals";
 import type { EventManager } from "../Events/EventManager";
 import { beginDamageEvent, endDamageEvent } from "./damageEventContext";
-import { applySharedDataValue } from "../utils/sharedData";
+import { applySharedDataValue, setSharedDataChangeSink } from "../utils/sharedData";
 
 export function setupEventManager(mgr: EventManager): void {
   setupBuiltinEvents(mgr);
@@ -246,6 +246,10 @@ function dispatchCancelable(mgr: EventManager, eventName: string, ...args: any[]
 }
 
 export function setupStateBags(mgr: EventManager): void {
+  // State bags can arrive before a network entity enters the local streaming
+  // range. Route later hydration through the same data-handler pipeline so
+  // initial RAGE shared data is observable, not only subsequent mutations.
+  setSharedDataChangeSink((entity, key, value) => emitDataChange(mgr, entity, key, value, true));
   if (typeof AddStateBagChangeHandler !== "function") return;
   AddStateBagChangeHandler(null, null, (bagName: string, key: string, value: any) => {
     const mp = globalThis.mp;
@@ -280,7 +284,7 @@ export function setupStateBags(mgr: EventManager): void {
   });
 }
 
-export function emitDataChange(mgr: EventManager, entity: any, key: string, value: any): void {
+export function emitDataChange(mgr: EventManager, entity: any, key: string, value: any, force = false): void {
   const rec = ClientEventManagerInternals.get(mgr);
   if (!rec.dataSnapshots) rec.dataSnapshots = new WeakMap();
   let snapshot = rec.dataSnapshots.get(entity);
@@ -289,6 +293,10 @@ export function emitDataChange(mgr: EventManager, entity: any, key: string, valu
     rec.dataSnapshots.set(entity, snapshot);
   }
   const oldValue = snapshot.get(key);
+  if (!force && snapshot.has(key) && Object.is(oldValue, value)) {
+    applySharedDataValue(entity, key, value);
+    return;
+  }
   snapshot.set(key, value);
   applySharedDataValue(entity, key, value);
 

@@ -5,13 +5,22 @@ import { BlipMp } from "../../Entities/BlipMp";
 import { BlipInternals } from "../blipInternals";
 import { applyBlipName } from "../../utils/blipName";
 import { isVisibleHere, onDimensionChange } from "../../utils/dimension";
+import { onWorldScan } from "../../utils/worldScan";
 import { setupNetworkedReceiver } from "./networkedReceiverService";
 import type { BlipMpPool } from "../../Pools/BlipMpPool";
 
-export function applyBlipVisibility(blip: BlipMp): void {
+export function applyBlipVisibility(blip: BlipMp, playerPosition?: number[]): void {
   if (!blip.handle || !DoesBlipExist(blip.handle)) return;
   const rec = BlipInternals.get(blip);
-  const shown = isVisibleHere(rec.dimension);
+  let shown = isVisibleHere(rec.dimension);
+  if (shown && rec.drawDistance > 0) {
+    const player = playerPosition ?? GetEntityCoords(PlayerPedId(), true);
+    const position = GetBlipCoords(blip.handle);
+    const dx = player[0] - position[0];
+    const dy = player[1] - position[1];
+    const dz = player[2] - position[2];
+    shown = dx * dx + dy * dy + dz * dz <= rec.drawDistance * rec.drawDistance;
+  }
   SetBlipAlpha(blip.handle, shown ? rec.alpha : 0);
 }
 
@@ -29,7 +38,10 @@ function createFromData(pool: BlipMpPool, data: any): BlipMp {
   rec.shortRange = data.shortRange;
   rec.scale = data.scale;
   rec.alpha = data.alpha ?? 255;
+  rec.drawDistance = data.drawDistance ?? 0;
+  rec.rotation = data.rotation ?? 0;
   rec.dimension = data.dimension ?? 0;
+  if (rec.rotation) SetBlipRotation(handle, Math.round(rec.rotation));
   applyBlipVisibility(blip);
   addNetworked(pool, blip as any);
 
@@ -46,6 +58,10 @@ function createFromData(pool: BlipMpPool, data: any): BlipMp {
 
 export function setupBlipPool(pool: BlipMpPool): void {
   onDimensionChange(() => pool.forEach(((blip: BlipMp) => applyBlipVisibility(blip)) as any));
+  onWorldScan(() => {
+    const position = GetEntityCoords(PlayerPedId(), true);
+    pool.forEach(((blip: BlipMp) => applyBlipVisibility(blip, position)) as any);
+  });
 
   setupNetworkedReceiver(pool, {
     createEvent: "ragemp:blipCreate",
@@ -61,6 +77,8 @@ export function setupBlipPool(pool: BlipMpPool): void {
         existing.color = data.color;
         existing.scale = data.scale;
         BlipInternals.get(existing).alpha = data.alpha ?? 255;
+        existing.drawDistance = data.drawDistance ?? 0;
+        existing.rotation = data.rotation ?? 0;
         existing.shortRange = data.shortRange;
         existing.dimension = data.dimension ?? 0;
         if (data.name) existing.name = data.name;
@@ -84,12 +102,16 @@ export function setupBlipPool(pool: BlipMpPool): void {
 }
 
 export function createBlip(pool: BlipMpPool, sprite: number, position: { x: number; y: number; z: number }, options: any): BlipMp {
-  const handle = AddBlipForCoord(position.x, position.y, position.z);
+  const radius = Math.max(0, Number(options.radius) || 0);
+  const handle = radius > 0
+    ? AddBlipForRadius(position.x, position.y, position.z, radius)
+    : AddBlipForCoord(position.x, position.y, position.z);
 
-  SetBlipSprite(handle, sprite);
+  if (radius === 0) SetBlipSprite(handle, sprite);
   if (options.color !== undefined) SetBlipColour(handle, options.color);
   if (options.scale !== undefined) SetBlipScale(handle, options.scale);
   if (options.shortRange !== undefined) SetBlipAsShortRange(handle, options.shortRange);
+  if (options.rotation !== undefined) SetBlipRotation(handle, Math.round(options.rotation));
 
   applyBlipName(handle, options.name);
 
@@ -99,6 +121,9 @@ export function createBlip(pool: BlipMpPool, sprite: number, position: { x: numb
   rec.shortRange = options.shortRange ?? false;
   rec.scale = options.scale ?? 1.0;
   rec.alpha = options.alpha ?? 255;
+  rec.drawDistance = Math.max(0, Number(options.drawDistance) || 0);
+  rec.rotation = Number(options.rotation) || 0;
+  rec.radius = radius;
   rec.dimension = options.dimension ?? 0;
   applyBlipVisibility(blip);
   addLocal(pool, blip as any);

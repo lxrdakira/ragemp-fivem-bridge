@@ -92,6 +92,7 @@ function startRendering(pool: TextLabelMpPool): void {
       const drawDist = rec.drawDistance;
 
       if (distSq > drawDist * drawDist) return;
+      if (rec.los && !hasClearLineOfSight(playerPed, pos)) return;
 
       SetDrawOrigin(pos.x, pos.y, pos.z, 0);
       SetTextFont(rec.font);
@@ -115,4 +116,17 @@ function startRendering(pool: TextLabelMpPool): void {
       }
     });
   }
+}
+
+function hasClearLineOfSight(playerPed: number, position: Vector3): boolean {
+  const camera = GetGameplayCamCoord();
+  const probe = StartExpensiveSynchronousShapeTestLosProbe(
+    camera[0], camera[1], camera[2],
+    position.x, position.y, position.z,
+    511,
+    playerPed,
+    7,
+  );
+  const [status, hit] = GetShapeTestResult(probe);
+  return status !== 2 || !hit;
 }
