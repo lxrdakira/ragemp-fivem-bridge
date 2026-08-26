@@ -15,6 +15,7 @@ export class GameCamNs {
   destroyAllCams(bScriptHostCam: boolean): void { DestroyAllCams(bScriptHostCam ?? false); }
 
   getCoord(cam: number): Vector3 { return toVec3(GetCamCoord(cam)); }
+  getGameplayCamCoord(): Vector3 { return toVec3(GetGameplayCamCoord()); }
   setCoord(cam: number, x: number, y: number, z: number): void { SetCamCoord(cam, x, y, z); }
   getRot(cam: number, rotationOrder: number): Vector3 { return toVec3(GetCamRot(cam, rotationOrder ?? 2)); }
   setRot(cam: number, pitch: number, roll: number, yaw: number, rotationOrder: number): void { SetCamRot(cam, pitch, roll, yaw, rotationOrder ?? 2); }

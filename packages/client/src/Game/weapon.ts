@@ -1,10 +1,20 @@
 import { createUnkProxy, toVec3 } from "./_helpers.js";
 import { Vector3 } from "@ragemp-fivem-bridge/shared";
+import { cancelDamageEvent, setDamageEventAmount, setDamageEventCritical } from "../internal/damageEventContext";
 
 export class GameWeaponNs {
   unk: any = createUnkProxy();
 
   unequipEmptyWeapons: boolean = true;
+
+  cancelCurrentDamageEvent(): void { cancelDamageEvent(); }
+  setCurrentDamageEventAmount(amount: number): void { setDamageEventAmount(amount); }
+  setCurrentDamageEventCritical(critical: boolean): void { setDamageEventCritical(critical); }
+  setEnableLocalOutgoingDamage(enabled: boolean): void
+  {
+    NetworkSetFriendlyFireOption(!!enabled);
+    SetCanAttackFriendly(PlayerPedId(), !!enabled, false);
+  }
 
   giveToPed(ped: number, weaponHash: number, ammoCount: number, isHidden: boolean, bForceInHand: boolean): void {
     GiveWeaponToPed(ped, weaponHash, ammoCount, isHidden ?? false, bForceInHand ?? true);

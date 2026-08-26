@@ -2442,6 +2442,9 @@ export class GameGraphicsNs {
       p13,
     );
   }
+  drawScaleformMovie3d(...args: Parameters<GameGraphicsNs["drawScaleformMovie3D"]>): void {
+    this.drawScaleformMovie3D(...args);
+  }
   drawScaleformMovie3DNonAdditive(
     scaleform: number,
     posX: number,
@@ -2475,6 +2478,9 @@ export class GameGraphicsNs {
       p13,
     );
   } // unverified
+  drawScaleformMovie3dNonAdditive(...args: Parameters<GameGraphicsNs["drawScaleformMovie3DNonAdditive"]>): void {
+    this.drawScaleformMovie3DNonAdditive(...args);
+  }
   drawScaleformMovie3DSolid(
     scaleform: number,
     posX: number,

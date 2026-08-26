@@ -9,6 +9,7 @@ import { resolveHandle } from "../internal/pools/streamingService";
 import { playerByServerId } from "../internal/pools/playerPoolService";
 import { ClientEventManagerInternals } from "../internal/eventManagerInternals";
 import type { EventManager } from "../Events/EventManager";
+import { beginDamageEvent, endDamageEvent } from "./damageEventContext";
 
 export function setupEventManager(mgr: EventManager): void {
   setupBuiltinEvents(mgr);
@@ -135,7 +136,9 @@ export function setupGameEvents(mgr: EventManager): void {
             if (attackerPlayer >= 0) rec.lastDamageAttackerServerId = GetPlayerServerId(attackerPlayer);
           }
         } catch (_) {}
-        mgr.call(
+        beginDamageEvent();
+        const cancelled = dispatchCancelable(
+          mgr,
           "incomingDamage",
           localPlayer,
           attacker,
@@ -144,9 +147,15 @@ export function setupGameEvents(mgr: EventManager): void {
           false,
           0,
         );
+        const damageState = endDamageEvent();
+        if (cancelled || damageState?.cancelled) {
+          if (typeof CancelEvent === "function") CancelEvent();
+        }
       }
       if (attacker === localPed) {
-        mgr.call(
+        beginDamageEvent();
+        const cancelled = dispatchCancelable(
+          mgr,
           "outgoingDamage",
           localPlayer,
           victim,
@@ -155,6 +164,10 @@ export function setupGameEvents(mgr: EventManager): void {
           false,
           0,
         );
+        const damageState = endDamageEvent();
+        if (cancelled || damageState?.cancelled) {
+          if (typeof CancelEvent === "function") CancelEvent();
+        }
       }
       return;
     }
@@ -164,12 +177,14 @@ export function setupGameEvents(mgr: EventManager): void {
       const posY = args[3] ?? 0;
       const posZ = args[4] ?? 0;
       const explosionType = args[1] ?? -1;
-      mgr.call(
+      const cancelled = dispatchCancelable(
+        mgr,
         "explosion",
         localPlayer,
         { x: posX, y: posY, z: posZ },
         explosionType,
       );
+      if (cancelled && typeof CancelEvent === "function") CancelEvent();
       return;
     }
 
@@ -211,6 +226,20 @@ export function setupGameEvents(mgr: EventManager): void {
       return;
     }
   });
+}
+
+function dispatchCancelable(mgr: EventManager, eventName: string, ...args: any[]): boolean {
+  const handlers = EventEmitterInternals.get(mgr).handlers.get(eventName);
+  if (!handlers) return false;
+  let cancelled = false;
+  for (const handler of handlers) {
+    try {
+      if ((handler as any)(...args) === true) cancelled = true;
+    } catch (error) {
+      console.error(`[ragemp:${eventName}]`, error);
+    }
+  }
+  return cancelled;
 }
 
 export function setupStateBags(mgr: EventManager): void {

@@ -42,6 +42,7 @@ import * as Enums from "./Enums";
 export class Mp {
   Vector3: typeof Vector3 = Vector3;
   enums: typeof Enums = Enums;
+  version = { core: "fivem-bridge", net: "fivem" };
 
   Entity: typeof Entity = Entity;
   Player: typeof PlayerMp = PlayerMp;

@@ -34,4 +34,11 @@ export class PlayerMpPool extends Pool<PlayerMp> {
   override forEachInStreamRange(fn: (player: PlayerMp) => void): void {
     this.streamed.forEach(fn);
   }
+
+  atHandle(handle: number): PlayerMp | null {
+    for (const player of this.toArray()) {
+      if (player.handle === handle || player.getIndex() === handle) return player;
+    }
+    return null;
+  }
 }

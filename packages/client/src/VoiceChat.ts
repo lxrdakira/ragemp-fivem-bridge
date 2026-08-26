@@ -4,6 +4,7 @@ const LISTEN_CHANNEL = 31;
 
 export class VoiceChatMp {
   _enabled = true;
+  _muted = false;
 
   get connected() {
     return MumbleIsConnected();
@@ -15,7 +16,16 @@ export class VoiceChatMp {
 
   set enabled(value) {
     this._enabled = !!value;
-    NetworkSetVoiceActive(this._enabled);
+    NetworkSetVoiceActive(this._enabled && !this._muted);
+  }
+
+  get muted() {
+    return this._muted;
+  }
+
+  set muted(value) {
+    this._muted = !!value;
+    NetworkSetVoiceActive(this._enabled && !this._muted);
   }
 
   get proximity() {
@@ -44,6 +54,22 @@ export class VoiceChatMp {
   stopListenToAll() {
     MumbleClearVoiceTarget(LISTEN_CHANNEL);
     MumbleRemoveVoiceChannelListen(LISTEN_CHANNEL);
+  }
+
+  cleanupAndReload(_resetInput = true, _resetOutput = true, _resetTargets = true) {
+    const wasEnabled = this._enabled;
+    const wasMuted = this._muted;
+    const proximity = this.proximity;
+
+    this.stopListenToAll();
+    NetworkSetVoiceActive(false);
+
+    setTimeout(() => {
+      if (Number.isFinite(proximity) && proximity > 0) {
+        MumbleSetTalkerProximity(proximity);
+      }
+      NetworkSetVoiceActive(wasEnabled && !wasMuted);
+    }, 0);
   }
 
   isTalking(player: number | any) {

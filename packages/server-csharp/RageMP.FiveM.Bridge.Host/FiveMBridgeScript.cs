@@ -99,6 +99,7 @@ namespace RageMP.FiveM.Bridge.Host
             _initialized = true;
             Tick -= InitializeOnFirstTick;
 
+            RuntimeFileBootstrap.Prepare(API.GetResourcePath(API.GetCurrentResourceName()));
             DerivedEntityFactory.Configure();
             var scripts = DiscoverScripts().ToArray();
             foreach (var script in scripts) _dispatcher.Register(script);

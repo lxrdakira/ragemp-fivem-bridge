@@ -40,6 +40,7 @@ export class GamePhysicsNs {
   applyImpulseToCloth(posX: number, posY: number, posZ: number, vecX: number, vecY: number, vecZ: number, impulse: number): void { ApplyImpulseToCloth(posX, posY, posZ, vecX, vecY, vecZ, impulse); }
   setDamping(entity: number, vertex: number, value: number): void { SetDamping(entity, vertex, value); }
   activate(entity: number): void { ActivatePhysics(entity); }
+  activatePhysics(entity: number): void { ActivatePhysics(entity); }
   setCgoffset(entity: number, x: number, y: number, z: number): void { SetCgoffset(entity, x, y, z); }
   getCgoffset(entity: number): Vector3 { return toVec3(GetCgoffset(entity)); }
   setCgAtBoundcenter(entity: number): void { SetCgAtBoundcenter(entity); }

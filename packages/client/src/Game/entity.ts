@@ -25,6 +25,7 @@ export class GameEntityNs {
   getCoords(entity: number, alive: boolean): Vector3 { return toVec3(GetEntityCoords(entity, alive ?? true)); }
   setCoords(entity: number, xPos: number, yPos: number, zPos: number, xAxis: boolean, yAxis: boolean, zAxis: boolean, clearArea: boolean): void { SetEntityCoords(entity, xPos, yPos, zPos, xAxis ?? false, yAxis ?? false, zAxis ?? false, clearArea ?? true); }
   setCoordsNoOffset(entity: number, xPos: number, yPos: number, zPos: number, xAxis: boolean, yAxis: boolean, zAxis: boolean): void { SetEntityCoordsNoOffset(entity, xPos, yPos, zPos, xAxis ?? true, yAxis ?? true, zAxis ?? true); }
+  setEntityCoordsNoOffset(entity: number, xPos: number, yPos: number, zPos: number, keepTasks: boolean, keepIK: boolean, doWarp: boolean): void { SetEntityCoordsNoOffset(entity, xPos, yPos, zPos, keepTasks ?? true, keepIK ?? true, doWarp ?? true); }
   getHeading(entity: number): number { return GetEntityHeading(entity); }
   setHeading(entity: number, heading: number): void { SetEntityHeading(entity, heading); }
   getRotation(entity: number, rotationOrder: number): Vector3 { return toVec3(GetEntityRotation(entity, rotationOrder ?? 2)); }
@@ -51,6 +52,7 @@ export class GameEntityNs {
   getSpeed(entity: number): number { return GetEntitySpeed(entity); }
   getSpeedVector(entity: number, relative: boolean): Vector3 { return toVec3(GetEntitySpeedVector(entity, !!relative)); }
   setMaxSpeed(entity: number, speed: number): void { SetEntityMaxSpeed(entity, speed); }
+  setEntityMaxSpeed(entity: number, speed: number): void { SetEntityMaxSpeed(entity, speed); }
 
   getHealth(entity: number): number { const h = GetEntityHealth(entity); return IsEntityAPed(entity) ? gtaPedHealthToRage(h) : h; }
   setHealth(entity: number, health: number): void { SetEntityHealth(entity, IsEntityAPed(entity) ? rageHealthToGtaPed(health) : health); }
@@ -98,6 +100,8 @@ export class GameEntityNs {
   getEntityAnimDuration(animDict: string, animName: string): number { return GetAnimDuration(animDict, animName); }
   setAnimCurrentTime(entity: number, animDictionary: string, animName: string, time: number): void { SetEntityAnimCurrentTime(entity, animDictionary, animName, time); }
   setAnimSpeed(entity: number, animDictionary: string, animName: string, speedMultiplier: number): void { SetEntityAnimSpeed(entity, animDictionary, animName, speedMultiplier); }
+  setEntityAnimCurrentTime(entity: number, animDictionary: string, animName: string, time: number): void { SetEntityAnimCurrentTime(entity, animDictionary, animName, time); }
+  setEntityAnimSpeed(entity: number, animDictionary: string, animName: string, speedMultiplier: number): void { SetEntityAnimSpeed(entity, animDictionary, animName, speedMultiplier); }
 
   attachToEntity(entity1: number, entity2: number, boneIndex: number, xPos: number, yPos: number, zPos: number, xRot: number, yRot: number, zRot: number, p9: boolean, useSoftPinning: boolean, collision: boolean, isPed: boolean, vertexIndex: number, fixedRot: boolean): void {
     AttachEntityToEntity(entity1, entity2, boneIndex, xPos, yPos, zPos, xRot, yRot, zRot, !!p9, !!useSoftPinning, !!collision, !!isPed, vertexIndex ?? 2, !!fixedRot);
@@ -119,8 +123,10 @@ export class GameEntityNs {
   getBonePosition2(entity: number, boneIndex: number): Vector3 { return toVec3(GetWorldPositionOfEntityBone(entity, boneIndex)); }
 
   isDead(entity: number): boolean { return IsEntityDead(entity); }
+  isEntityDead(entity: number): boolean { return IsEntityDead(entity); }
   isInAir(entity: number): boolean { return IsEntityInAir(entity); }
   isInWater(entity: number): boolean { return IsEntityInWater(entity); }
+  isEntityInWater(entity: number): boolean { return IsEntityInWater(entity); }
   isAtEntity(entity1: number, entity2: number, xSize: number, ySize: number, zSize: number, p5: boolean, p6: boolean, p7: number): boolean { return IsEntityAtEntity(entity1, entity2, xSize, ySize, zSize, !!p5, !!p6, p7); }
   isInArea(entity: number, x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, p7: boolean, p8: boolean, p9: number): boolean { return IsEntityInArea(entity, x1, y1, z1, x2, y2, z2, !!p7, !!p8, p9); }
   isInZone(entity: number, zone: string): boolean { return IsEntityInZone(entity, zone); }

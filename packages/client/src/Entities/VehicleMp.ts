@@ -336,7 +336,7 @@ export class VehicleMp extends EntityMpBase {
   overrideVehHorn(override: boolean, hornHash: number): void { OverrideVehHorn(this.handle, !!override, hornHash); }
   triggerSiren(): void { SetVehicleSiren(this.handle, true); }
   setSirenKeepOn(_toggle: boolean): void {}
-  setSirenSound(_enable: boolean): void {}
+  setSirenSound(enable: boolean): void { SetVehicleHasMutedSirens(this.handle, !enable); }
 
   setVehicleRadioLoud(toggle: boolean): void { SetVehicleRadioLoud(this.handle, !!toggle); }
   setVehicleRadioEnabled(enable: boolean): void { SetVehicleRadioEnabled(this.handle, !!enable); }

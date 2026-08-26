@@ -80,6 +80,7 @@ export class GameMp {
   localization: GameLocalizationNs;
   itemset: GameItemsetNs;
   recording: GameRecordingNs;
+  recorder: GameRecordingNs;
   replay: GameReplayNs;
   datafile: GameDatafileNs;
   event: GameEventNs;
@@ -129,6 +130,7 @@ export class GameMp {
     this.localization = new GameLocalizationNs();
     this.itemset = new GameItemsetNs();
     this.recording = new GameRecordingNs();
+    this.recorder = this.recording;
     this.replay = new GameReplayNs();
     this.datafile = new GameDatafileNs();
     this.event = new GameEventNs();

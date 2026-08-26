@@ -57,6 +57,10 @@ export class EntityMpBase extends Entity {
     return toVec3(GetEntityCoords(this.handle, alive ?? true));
   }
 
+  setPosition(position: { x: number; y: number; z: number }): void {
+    this.position = new Vector3(position.x, position.y, position.z);
+  }
+
   getRotation(rotationOrder?: number): Vector3 {
     return toVec3(GetEntityRotation(this.handle, rotationOrder ?? 2));
   }

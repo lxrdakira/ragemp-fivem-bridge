@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGES_ROOT = resolve(__dirname, "..");
+const PROJECT_ROOT = resolve(PACKAGES_ROOT, "../..");
 
 function bridgeDist(pkg) {
   const monorepo = resolve(PACKAGES_ROOT, pkg, "dist", "index.js");
@@ -110,6 +111,15 @@ export async function packBridge(flags = {}) {
     for (const file of assemblies) {
       await cp(join(sourceDir, file), join(outDir, "csharp", file));
       console.log(`  + csharp/${file}`);
+    }
+
+    const runtimeDir = join(outDir, "runtime");
+    await mkdir(runtimeDir, { recursive: true });
+    for (const name of ["settings", "marketPlace", "json"]) {
+      const source = join(PROJECT_ROOT, name);
+      if (!existsSync(source)) continue;
+      await cp(source, join(runtimeDir, name), { recursive: true });
+      console.log(`  + runtime/${name}/**`);
     }
   }
 

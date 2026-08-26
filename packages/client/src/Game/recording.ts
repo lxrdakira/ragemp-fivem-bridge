@@ -7,6 +7,7 @@ export class GameRecordingNs {
   isRecording(): boolean { return IsRecording(); }
   is(): boolean { return IsRecording(); }
   start(mode: number): void { StartRecording(mode); }
+  stop(save: boolean = true): void { if (save) StopRecording(); else StopRecordingAndDiscardClip(); }
   stopAndSaveClip(): void { StopRecording(); }
   stopAndDiscardClip(): void { StopRecordingAndDiscardClip(); }
   saveClip(): boolean { return SaveRecordingClip(); }
