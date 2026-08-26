@@ -5,6 +5,8 @@ export interface PlayerInternalsRec {
   playerIndex: number;
   dimension: number | undefined;
   typingInTextChat: boolean;
+  voiceVolume: number;
+  voice3d: boolean;
   voiceFX: any;
 }
 
@@ -19,6 +21,8 @@ export function initPlayerInternals(player: PlayerMp, playerIndex: number): Play
     playerIndex,
     dimension: undefined,
     typingInTextChat: false,
+    voiceVolume: 1,
+    voice3d: true,
     voiceFX: undefined,
   });
 }

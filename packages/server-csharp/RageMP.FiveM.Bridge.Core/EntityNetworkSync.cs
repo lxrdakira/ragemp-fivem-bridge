@@ -48,7 +48,18 @@ namespace GTANetworkAPI
             entity.NativeHandle = reference.Handle;
             entity.NetworkId = reference.NetworkId;
             entity.NetworkPublished = reference.Handle != 0;
-            if (entity.NetworkPublished) PublishNativeReference(entity);
+            if (entity.NetworkPublished)
+            {
+                PublishNativeReference(entity);
+                if (entity is Vehicle vehicle)
+                {
+                    foreach (var occupant in new List<Entity>(vehicle.Occupants))
+                    {
+                        if (occupant is Player player && player.Vehicle == vehicle)
+                            player.TriggerEvent("ragemp:putIntoVehicle", vehicle.NetworkId, player.VehicleSeat);
+                    }
+                }
+            }
         }
 
         internal static void Destroy(Entity entity)
@@ -106,6 +117,11 @@ namespace GTANetworkAPI
             BridgeRuntime.Current.TriggerClientEventForAll("ragemp:entity:create", NativeCreateArguments(entity));
             BridgeRuntime.Current.TriggerClientEventForAll("ragemp:entity:netid", new object[] { NativeType(entity), entity.Id, entity.NetworkId });
             if (entity is Vehicle vehicle) SendVehicleStateForAll(vehicle);
+            else if (entity is Ped ped)
+            {
+                SendPedStateForAll(ped);
+                ped.ReapplyController();
+            }
         }
 
         private static void SendNativeReference(Player player, Entity entity)
@@ -113,7 +129,19 @@ namespace GTANetworkAPI
             BridgeRuntime.Current.TriggerClientEvent(player, "ragemp:entity:create", NativeCreateArguments(entity));
             BridgeRuntime.Current.TriggerClientEvent(player, "ragemp:entity:netid", new object[] { NativeType(entity), entity.Id, entity.NetworkId });
             if (entity is Vehicle vehicle) SendVehicleState(player, vehicle);
+            else if (entity is Ped ped) SendPedState(player, ped);
         }
+
+        private static void SendPedStateForAll(Ped ped) =>
+            BridgeRuntime.Current.TriggerClientEventForAll("ragemp:ped:batch", PedState(ped));
+
+        private static void SendPedState(Player player, Ped ped) =>
+            BridgeRuntime.Current.TriggerClientEvent(player, "ragemp:ped:batch", PedState(ped));
+
+        private static object[] PedState(Ped ped) => new object[]
+        {
+            ped.NetworkId, ped.Dynamic, ped.Invincible, ped.Frozen, ped.ControlLocked
+        };
 
         private static void SendVehicleStateForAll(Vehicle vehicle) =>
             BridgeRuntime.Current.TriggerClientEventForAll("ragemp:vehicle:batch", new object[] { vehicle.NetworkId, VehicleState(vehicle) });

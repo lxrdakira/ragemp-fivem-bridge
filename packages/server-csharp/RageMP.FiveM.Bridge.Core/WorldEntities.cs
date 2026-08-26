@@ -82,7 +82,26 @@ namespace GTANetworkAPI
     public class Ped : Entity
     {
         public Ped(NetHandle handle) : base(handle) { }
-        public Player? Controller { get; set; }
+        private Player? _controller;
+        public bool Dynamic { get; internal set; }
+        public bool Invincible { get; internal set; }
+        public bool Frozen { get; internal set; }
+        public bool ControlLocked { get; internal set; }
+        public Player? Controller
+        {
+            get => _controller;
+            set
+            {
+                _controller = value;
+                ReapplyController();
+            }
+        }
+
+        internal void ReapplyController()
+        {
+            if (_controller != null && NetworkId != 0)
+                _controller.TriggerEvent("ragemp:requestEntityControl", NetworkId);
+        }
     }
 
     public class Pickup : Entity

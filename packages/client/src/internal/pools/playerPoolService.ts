@@ -119,6 +119,10 @@ function applyMap(pool: PlayerMpPool, source: number, remoteId: number): void {
 
 function applyUnmap(pool: PlayerMpPool, source: number): void {
   const st = Store.get(pool);
+  if (source > 0) {
+    MumbleSetVolumeOverrideByServerId(source, -1);
+    MumbleRemoveVoiceTargetPlayerByServerId(31, source);
+  }
   const remoteId = st.serverIdToRemote.get(source);
   st.serverIdToRemote.delete(source);
   st.activeByServerId.delete(source);

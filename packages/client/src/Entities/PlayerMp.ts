@@ -226,10 +226,15 @@ export class PlayerMp extends PedMpBase {
   closeVoiceStream(): void {}
   get voiceAutoVolume(): number { return 1.0; }
   set voiceAutoVolume(_v: number) {}
-  get voiceVolume(): number { return 1.0; }
-  set voiceVolume(v: number) { MumbleSetAudioInputDistance(v * 20); }
-  get voice3d(): any { return false; }
-  set voice3d(_v: any) {}
+  get voiceVolume(): number { return PlayerInternals.get(this).voiceVolume; }
+  set voiceVolume(value: number) {
+    const volume = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
+    PlayerInternals.get(this).voiceVolume = volume;
+    const serverId = getPlayerServerId(this);
+    if (serverId > 0) MumbleSetVolumeOverrideByServerId(serverId, volume);
+  }
+  get voice3d(): boolean { return PlayerInternals.get(this).voice3d; }
+  set voice3d(value: boolean) { PlayerInternals.get(this).voice3d = !!value; }
   setVoiceFx(_fxType: number, _priority: number): void {}
   removeVoiceFx(_fxHandle: number): void {}
   resetVoiceFx(_fxHandle: number): void {}

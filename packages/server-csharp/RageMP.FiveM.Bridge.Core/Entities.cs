@@ -165,7 +165,7 @@ namespace GTANetworkAPI
         public string Address { get; internal set; } = string.Empty;
         public bool IsInCover { get; internal set; }
 
-        public void ApplyNetworkState(Vector3 position, float heading, int health, int armor, int ping, uint? dimension = null)
+        public void ApplyNetworkState(Vector3 position, float heading, int health, int armor, int ping, uint? dimension = null, bool? isInCover = null)
         {
             base.Position = position;
             base.Rotation = new Vector3(0f, 0f, heading);
@@ -173,6 +173,7 @@ namespace GTANetworkAPI
             _armor = armor;
             Ping = ping;
             if (dimension.HasValue) base.Dimension = dimension.Value;
+            if (isInCover.HasValue) IsInCover = isInCover.Value;
         }
 
         public void TriggerEvent(string eventName, params object[] arguments) =>
@@ -221,6 +222,7 @@ namespace GTANetworkAPI
         private int _numberPlateStyle;
         private int _wheelType;
         private int _windowTint;
+        private string? _runtimeDisplayName;
         public string NumberPlate { get => _numberPlate; set { _numberPlate = value ?? string.Empty; SyncNetworkState(); } }
         public bool EngineStatus { get => _engineStatus; set { _engineStatus = value; SyncNetworkState(); } }
         public bool Locked { get => _locked; set { _locked = value; SyncNetworkState(); } }
@@ -244,7 +246,7 @@ namespace GTANetworkAPI
         internal bool NeonEnabled { get; set; }
         internal Color NeonColor { get; set; } = new Color(255, 255, 255);
         internal Dictionary<int, int> Mods { get; } = new Dictionary<int, int>();
-        public string DisplayName => Model.ToString();
+        public string DisplayName => _runtimeDisplayName ?? VehicleClassCatalog.GetDisplayName(Model);
         public int Class { get; internal set; }
         public void Repair() { _health = 1000f; _bodyHealth = 1000f; _engineHealth = 1000f; SyncNetworkState(); }
         public void ApplyNetworkHealth(float health, float bodyHealth, float engineHealth)
@@ -253,6 +255,12 @@ namespace GTANetworkAPI
             _bodyHealth = bodyHealth;
             _engineHealth = engineHealth;
         }
+        public void ApplyNetworkMetadata(int vehicleClass, string? displayName)
+        {
+            if (vehicleClass >= 0) Class = vehicleClass;
+            if (!string.IsNullOrWhiteSpace(displayName)) _runtimeDisplayName = displayName;
+        }
+        internal void ResetNetworkMetadata() => _runtimeDisplayName = null;
         public void SetMod(int modType, int modIndex) { Mods[modType] = modIndex; SyncNetworkState(); }
     }
 }

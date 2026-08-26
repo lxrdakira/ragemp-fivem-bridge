@@ -6,6 +6,7 @@ import {
   applyVehicleRepair,
 } from "../../utils/vehicleSync";
 import type { VehicleMp } from "../../Entities/VehicleMp";
+import { streamEntityState } from "../streamingInternals";
 
 type StreamInHandler = (entity: VehicleMp, handle: number, netId: number) => void;
 
@@ -74,9 +75,14 @@ export function addVehicleStreamInHandler(pool: object, handler: StreamInHandler
 }
 
 export function fireVehicleStreamIn(pool: object, entity: VehicleMp, handle: number, netId: number): void {
-  const pending = Store.get(pool).pendingBatches.get(netId);
+  const state = Store.get(pool);
+  if (netId && streamEntityState(entity).isServer) {
+    const model = GetEntityModel(handle);
+    emitNet("ragemp:vehicleClassReport", netId, GetVehicleClass(handle), GetDisplayNameFromVehicleModel(model) || "");
+  }
+  const pending = state.pendingBatches.get(netId);
   if (pending) {
-    Store.get(pool).pendingBatches.delete(netId);
+    state.pendingBatches.delete(netId);
     applyBatch(handle, pending);
   }
   for (const handler of Store.get(pool).streamInHandlers) {

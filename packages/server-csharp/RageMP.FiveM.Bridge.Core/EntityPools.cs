@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 
 namespace RAGE
 {
@@ -45,6 +44,7 @@ namespace RAGE
     public sealed class EntityPool<T> where T : Entity
     {
         private readonly ConcurrentDictionary<ushort, T> _entities = new ConcurrentDictionary<ushort, T>();
+        private readonly object _createSync = new object();
         private readonly EntityType _type;
         private int _lastId;
 
@@ -68,10 +68,21 @@ namespace RAGE
 
         public T Create()
         {
-            ushort id;
-            do { id = checked((ushort)Interlocked.Increment(ref _lastId)); }
-            while (_entities.ContainsKey(id));
-            return GetOrCreate(id);
+            lock (_createSync)
+            {
+                for (var attempt = 0; attempt < ushort.MaxValue; attempt++)
+                {
+                    _lastId = _lastId >= ushort.MaxValue ? 1 : _lastId + 1;
+                    var id = (ushort)_lastId;
+                    if (_entities.ContainsKey(id)) continue;
+                    var handle = new NetHandle(id, _type);
+                    var entity = CreateEntity != null
+                        ? CreateEntity(handle)
+                        : (T)Activator.CreateInstance(typeof(T), handle)!;
+                    if (_entities.TryAdd(id, entity)) return entity;
+                }
+            }
+            throw new InvalidOperationException($"The {_type} entity pool has no free handles.");
         }
 
         public void Register(T entity) => _entities[entity.Id] = entity;

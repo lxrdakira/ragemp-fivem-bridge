@@ -50,6 +50,28 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
   let _modelTimer: ReturnType<typeof setInterval> | null = null;
   let _animTimer: ReturnType<typeof setInterval> | null = null;
   let _putVehTimer: ReturnType<typeof setInterval> | null = null;
+  const _controlTimers = new Map<number, ReturnType<typeof setInterval>>();
+
+  function requestNetworkControl(netId: number): void {
+    if (!netId || _controlTimers.has(netId)) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries++;
+      if (NetworkDoesNetworkIdExist(netId)) {
+        if (NetworkHasControlOfNetworkId(netId)) {
+          clearInterval(timer);
+          _controlTimers.delete(netId);
+          return;
+        }
+        NetworkRequestControlOfNetworkId(netId);
+      }
+      if (tries > 100) {
+        clearInterval(timer);
+        _controlTimers.delete(netId);
+      }
+    }, 50);
+    _controlTimers.set(netId, timer);
+  }
 
   function applyHeadBlend(ped: number): void {
     const b = _appearance.headBlend;
@@ -374,8 +396,11 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
 
   onNet("ragemp:requestVehicleControl", (targetServerId: number, netId: number) => {
     if (targetServerId !== -1 && targetServerId !== GetPlayerServerId(PlayerId())) return;
-    if (!NetworkDoesNetworkIdExist(netId)) return;
-    NetworkRequestControlOfNetworkId(netId);
+    requestNetworkControl(netId);
+  });
+
+  onNet("ragemp:requestEntityControl", (netId: number) => {
+    requestNetworkControl(netId);
   });
 
   onNet("ragemp:setTime", (hour: number, minute: number, second: number) => {
@@ -446,6 +471,8 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
     if (_animTimer) clearInterval(_animTimer);
     if (_putVehTimer) clearInterval(_putVehTimer);
     if (_clothesTick) clearTick(_clothesTick);
+    for (const timer of _controlTimers.values()) clearInterval(timer);
+    _controlTimers.clear();
     _modelTimer = _animTimer = _putVehTimer = null;
     _clothesTick = null;
   });

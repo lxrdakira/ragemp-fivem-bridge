@@ -336,6 +336,17 @@ export function setupMainTick(mgr: EventManager): void {
     const now = GetGameTimer();
     if (now - rec.lastPlayerStateSyncAt >= 500) {
       rec.lastPlayerStateSyncAt = now;
+      const vehicleHandle = GetVehiclePedIsIn(ped, false);
+      let vehicleSeat = -2;
+      if (vehicleHandle) {
+        const maxPassengers = GetVehicleMaxNumberOfPassengers(vehicleHandle);
+        for (let seat = -1; seat < maxPassengers; seat++) {
+          if (GetPedInVehicleSeat(vehicleHandle, seat) === ped) {
+            vehicleSeat = seat;
+            break;
+          }
+        }
+      }
       emitNet(
         "ragemp:playerState",
         playerCoords[0],
@@ -344,6 +355,9 @@ export function setupMainTick(mgr: EventManager): void {
         GetEntityHeading(ped),
         gtaPedHealthToRage(GetEntityHealth(ped)),
         GetPedArmour(ped),
+        IsPedInCover(ped, false),
+        safeGetNetworkId(vehicleHandle),
+        vehicleSeat,
       );
     }
 
@@ -458,9 +472,10 @@ export function tickLifecycle(mgr: EventManager, ped: number, localPlayer: any):
 export function tickVehicleState(mgr: EventManager, ped: number, localPlayer: any): void {
   const rec = ClientEventManagerInternals.get(mgr);
   const inVehicle = IsPedInAnyVehicle(ped, false);
+  const currentVehicleHandle = inVehicle ? GetVehiclePedIsIn(ped, false) : 0;
 
   if (inVehicle && !rec.wasInVehicle) {
-    const vehicleHandle = GetVehiclePedIsIn(ped, false);
+    const vehicleHandle = currentVehicleHandle;
     rec.lastVehicleHandle = vehicleHandle;
 
     let seatIndex = -1;
@@ -480,6 +495,27 @@ export function tickVehicleState(mgr: EventManager, ped: number, localPlayer: an
     mgr.call("playerEnterVehicle", enteredVehicle, seatIndex);
 
     emitNet("ragemp:playerEnterVehicle", vehicleNetId, seatIndex);
+  } else if (inVehicle && rec.wasInVehicle && currentVehicleHandle !== rec.lastVehicleHandle) {
+    const previousHandle = rec.lastVehicleHandle;
+    const previousNetId = safeGetNetworkId(previousHandle);
+    const previousVehicle = resolveHandle(globalThis.mp.vehicles, previousHandle) ?? null;
+    mgr.call("playerLeaveVehicle", previousVehicle, rec.lastVehicleSeat ?? -1);
+    emitNet("ragemp:playerExitVehicle", previousNetId);
+
+    rec.lastVehicleHandle = currentVehicleHandle;
+    let seatIndex = -1;
+    const maxPassengers = GetVehicleMaxNumberOfPassengers(currentVehicleHandle);
+    for (let seat = -1; seat < maxPassengers; seat++) {
+      if (GetPedInVehicleSeat(currentVehicleHandle, seat) === ped) {
+        seatIndex = seat;
+        break;
+      }
+    }
+    rec.lastVehicleSeat = seatIndex;
+    const currentNetId = safeGetNetworkId(currentVehicleHandle);
+    const currentVehicle = resolveHandle(globalThis.mp.vehicles, currentVehicleHandle) ?? null;
+    mgr.call("playerEnterVehicle", currentVehicle, seatIndex);
+    emitNet("ragemp:playerEnterVehicle", currentNetId, seatIndex);
   } else if (!inVehicle && rec.wasInVehicle) {
     const lastVehicle = rec.lastVehicleHandle;
     const vehicleNetId = safeGetNetworkId(lastVehicle);

@@ -169,6 +169,10 @@ static Task TestWorldState()
 static Task TestVehicleClassCatalog()
 {
     Equal(8, NAPI.Vehicle.GetVehicleClass((VehicleHash)6774487u));
+    var vehicle = NAPI.Vehicle.CreateVehicle(6774487u, new Vector3(), 0f, 0, 0);
+    Equal(8, vehicle.Class);
+    Equal("CHIMERA", vehicle.DisplayName);
+    vehicle.Delete();
     Equal(-1, NAPI.Vehicle.GetVehicleClass((VehicleHash)uint.MaxValue));
     return Task.CompletedTask;
 }
@@ -178,10 +182,11 @@ static Task TestPlayerStateSynchronization()
     var runtime = new FakeRuntime();
     BridgeRuntime.Configure(runtime);
     var player = NewPlayer(22);
-    player.ApplyNetworkState(new Vector3(1, 2, 3), 45f, 80, 25, 30, 4);
+    player.ApplyNetworkState(new Vector3(1, 2, 3), 45f, 80, 25, 30, 4, true);
     Equal(0, runtime.ClientEvents.Count);
     Equal(new Vector3(1, 2, 3), player.Position);
     Equal(80, player.Health);
+    Equal(true, player.IsInCover);
     player.Position = new Vector3(4, 5, 6);
     player.Health = 90;
     player.Armor = 40;
@@ -276,6 +281,15 @@ static Task TestNativeEntitySync()
     Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[3].EventName);
     Equal(650f, vehicle.BodyHealth);
     Equal(650f, vehicle.EngineHealth);
+    var passenger = NewPlayer(26);
+    passenger.Vehicle = vehicle;
+    passenger.VehicleSeat = (int)VehicleSeat.RightFront;
+    var driver = NewPlayer(27);
+    driver.Vehicle = vehicle;
+    driver.VehicleSeat = (int)VehicleSeat.Driver;
+    vehicle.Occupants.Add(passenger);
+    vehicle.Occupants.Add(driver);
+    Equal(driver, NAPI.Vehicle.GetVehicleDriver(vehicle.Handle));
     var oldNetworkId = vehicle.NetworkId;
     NAPI.Entity.SetEntityModel(vehicle.Handle, 456u);
     Equal(456u, vehicle.Model);
@@ -286,6 +300,9 @@ static Task TestNativeEntitySync()
     Equal("ragemp:entity:create", runtime.BroadcastEvents[4].EventName);
     Equal("ragemp:entity:netid", runtime.BroadcastEvents[5].EventName);
     Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[6].EventName);
+    Equal(2, runtime.ClientEvents.Count);
+    Equal(vehicle.NetworkId, runtime.ClientEvents[0].Arguments[0]);
+    runtime.ClientEvents.Clear();
     NAPI.Player.SetPlayerIntoVehicle(NewPlayer(28), vehicle.Handle, 1);
     Equal("ragemp:putIntoVehicle", runtime.ClientEvents.Single().EventName);
     Equal(vehicle.NetworkId, runtime.ClientEvents.Single().Arguments[0]);
@@ -293,6 +310,18 @@ static Task TestNativeEntitySync()
     Equal("ragemp:entity:destroy", runtime.BroadcastEvents[7].EventName);
     Equal(0, vehicle.NetworkId);
     Equal(false, RAGE.Entities.Vehicles.All.Contains(vehicle));
+
+    runtime.ClientEvents.Clear();
+    var ped = NAPI.Ped.CreatePed(123u, new Vector3(), 0f, dynamic: true, invincible: true, frozen: true, controlLocked: true);
+    Equal(true, ped.Dynamic);
+    Equal(true, ped.Invincible);
+    Equal(true, ped.Frozen);
+    Equal(true, ped.ControlLocked);
+    var controller = NewPlayer(29);
+    ped.Controller = controller;
+    Equal("ragemp:requestEntityControl", runtime.ClientEvents.Single().EventName);
+    Equal(ped.NetworkId, runtime.ClientEvents.Single().Arguments[0]);
+    ped.Delete();
     return Task.CompletedTask;
 }
 

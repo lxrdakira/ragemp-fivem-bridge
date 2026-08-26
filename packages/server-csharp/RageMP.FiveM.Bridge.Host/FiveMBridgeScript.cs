@@ -21,12 +21,15 @@ namespace RageMP.FiveM.Bridge.Host
         private object[] _remoteEventContracts = Array.Empty<object>();
         private readonly Dictionary<int, (float Body, float Engine)> _vehicleHealth = new Dictionary<int, (float Body, float Engine)>();
         private readonly ConcurrentDictionary<int, PendingClientProcedure> _pendingClientProcedures = new ConcurrentDictionary<int, PendingClientProcedure>();
+        private readonly ConcurrentQueue<ScheduledAction> _scheduledInbound = new ConcurrentQueue<ScheduledAction>();
+        private readonly SortedDictionary<long, Queue<Action>> _scheduledByDue = new SortedDictionary<long, Queue<Action>>();
         private int _clientProcedureRequestId;
         private long _nextNativeEntityRefreshTicks;
 
         public FiveMBridgeScript()
         {
             BridgeRuntime.Configure(new CitizenFxRuntime(this));
+            Tick += DispatchScheduledActions;
             Tick += InitializeOnFirstTick;
             EventHandlers["playerJoining"] += new Action<CitizenFX.Core.Player>(OnPlayerJoining);
             EventHandlers["playerDropped"] += new Action<CitizenFX.Core.Player, string>(OnPlayerDropped);
@@ -37,13 +40,14 @@ namespace RageMP.FiveM.Bridge.Host
             EventHandlers["ragemp:csharp:playerDamage"] += new Action<CitizenFX.Core.Player, int, uint, int>(OnPlayerDamage);
             EventHandlers["ragemp:playerWeaponChange"] += new Action<CitizenFX.Core.Player, uint, uint>(OnPlayerWeaponChange);
             EventHandlers["ragemp:playerReady"] += new Action<CitizenFX.Core.Player, string>(OnPlayerReady);
-            EventHandlers["ragemp:playerState"] += new Action<CitizenFX.Core.Player, float, float, float, float, int, int>(OnPlayerState);
+            EventHandlers["ragemp:playerState"] += new Action<CitizenFX.Core.Player, float, float, float, float, int, int, bool, int, int>(OnPlayerState);
             EventHandlers["ragemp:playerEnterVehicle"] += new Action<CitizenFX.Core.Player, int, int>(OnPlayerEnterVehicle);
             EventHandlers["ragemp:playerExitVehicle"] += new Action<CitizenFX.Core.Player, int>(OnPlayerExitVehicle);
             EventHandlers["ragemp:playerStartEnterVehicle"] += new Action<CitizenFX.Core.Player, int, int>(OnPlayerStartEnterVehicle);
             EventHandlers["ragemp:playerStartExitVehicle"] += new Action<CitizenFX.Core.Player, int>(OnPlayerStartExitVehicle);
             EventHandlers["ragemp:vehicleHealthReport"] += new Action<CitizenFX.Core.Player, int, float, float>(OnVehicleHealthReport);
             EventHandlers["ragemp:vehicleDeath"] += new Action<CitizenFX.Core.Player, int>(OnVehicleDeath);
+            EventHandlers["ragemp:vehicleClassReport"] += new Action<CitizenFX.Core.Player, int, int, string>(OnVehicleClassReport);
             EventHandlers["ragemp:colshape:enter"] += new Action<CitizenFX.Core.Player, int>(OnColshapeEnter);
             EventHandlers["ragemp:colshape:exit"] += new Action<CitizenFX.Core.Player, int>(OnColshapeExit);
             EventHandlers["ragemp:callProcResult"] += new Action<CitizenFX.Core.Player, int, string?, object?>(OnClientProcedureResult);
@@ -52,10 +56,41 @@ namespace RageMP.FiveM.Bridge.Host
 
         internal CitizenFX.Core.Player? FindCitizenPlayer(ushort id) => Players[(int)id];
 
-        internal async Task Schedule(Action action, long delayMilliseconds)
+        internal Task Schedule(Action action, long delayMilliseconds)
         {
-            if (delayMilliseconds > 0) await Delay(checked((int)delayMilliseconds));
-            action();
+            if (action == null) throw new ArgumentNullException(nameof(action));
+            var delayTicks = delayMilliseconds <= 0
+                ? 0
+                : checked(delayMilliseconds * TimeSpan.TicksPerMillisecond);
+            _scheduledInbound.Enqueue(new ScheduledAction(DateTime.UtcNow.Ticks + delayTicks, action));
+            return Task.CompletedTask;
+        }
+
+        private Task DispatchScheduledActions()
+        {
+            while (_scheduledInbound.TryDequeue(out var pending))
+            {
+                if (!_scheduledByDue.TryGetValue(pending.DueTicks, out var actions))
+                {
+                    actions = new Queue<Action>();
+                    _scheduledByDue.Add(pending.DueTicks, actions);
+                }
+                actions.Enqueue(pending.Action);
+            }
+
+            var now = DateTime.UtcNow.Ticks;
+            while (_scheduledByDue.Count > 0)
+            {
+                var next = _scheduledByDue.First();
+                if (next.Key > now) break;
+                _scheduledByDue.Remove(next.Key);
+                while (next.Value.Count > 0)
+                {
+                    try { next.Value.Dequeue()(); }
+                    catch (Exception error) { Debug.WriteLine("[ragemp-csharp] scheduled action failed: " + error); }
+                }
+            }
+            return Task.CompletedTask;
         }
 
         internal Task<object?> CallClientProcedure(CitizenFX.Core.Player player, string procedureName, object[] arguments)
@@ -155,6 +190,11 @@ namespace RageMP.FiveM.Bridge.Host
                 pending.Completion.TrySetException(new InvalidOperationException("Player disconnected during client procedure: " + pending.Name));
             }
             if (!_players.Remove(source, out var player) || player == null) return;
+            if (player.Vehicle != null) player.Vehicle.Occupants.Remove(player);
+            player.Vehicle = null;
+            player.VehicleSeat = -1;
+            foreach (var ped in RAGE.Entities.Peds.All)
+                if (ped.Controller == player) ped.Controller = null;
             BaseScript.TriggerClientEvent("ragemp:player:unmap", player.Id);
             _ = _dispatcher.DispatchServerAsync(Event.PlayerDisconnected, player, DisconnectionType.Left, reason ?? string.Empty);
         }
@@ -211,7 +251,7 @@ namespace RageMP.FiveM.Bridge.Host
                 BaseScript.TriggerClientEvent(source, "ragemp:deleteWorldProp", deletion.Model, deletion.Position.X, deletion.Position.Y, deletion.Position.Z, deletion.Radius);
         }
 
-        private void OnPlayerState([FromSource] CitizenFX.Core.Player source, float x, float y, float z, float heading, int health, int armor)
+        private void OnPlayerState([FromSource] CitizenFX.Core.Player source, float x, float y, float z, float heading, int health, int armor, bool isInCover, int vehicleNetworkId, int nativeSeat)
         {
             if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z) || !IsFinite(heading)) return;
             var player = _players.GetOrCreate(source);
@@ -220,7 +260,23 @@ namespace RageMP.FiveM.Bridge.Host
                 heading,
                 Math.Max(0, Math.Min(100, health)),
                 Math.Max(0, Math.Min(100, armor)),
-                source.Ping);
+                source.Ping,
+                isInCover: isInCover);
+            ReconcilePlayerVehicle(player, vehicleNetworkId, nativeSeat);
+        }
+
+        private static void ReconcilePlayerVehicle(GTANetworkAPI.Player player, int networkId, int nativeSeat)
+        {
+            var vehicle = networkId > 0 ? RAGE.Entities.Vehicles.GetByNetworkId(networkId) : null;
+            if (player.Vehicle != vehicle)
+            {
+                if (player.Vehicle != null) player.Vehicle.Occupants.Remove(player);
+                player.Vehicle = vehicle;
+                if (vehicle != null && !vehicle.Occupants.Contains(player)) vehicle.Occupants.Add(player);
+            }
+            player.VehicleSeat = vehicle != null && nativeSeat >= -1
+                ? nativeSeat + 1
+                : -1;
         }
 
         private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
@@ -279,6 +335,16 @@ namespace RageMP.FiveM.Bridge.Host
         {
             var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId);
             if (vehicle != null) _ = _dispatcher.DispatchServerAsync(Event.VehicleDeath, vehicle);
+        }
+
+        private static void OnVehicleClassReport([FromSource] CitizenFX.Core.Player source, int networkId, int vehicleClass, string displayName)
+        {
+            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId);
+            if (vehicle == null || vehicleClass < 0 || vehicleClass > 31) return;
+            var safeName = string.IsNullOrWhiteSpace(displayName)
+                ? string.Empty
+                : displayName.Substring(0, Math.Min(displayName.Length, 64));
+            vehicle.ApplyNetworkMetadata(vehicleClass, safeName);
         }
 
         private void OnColshapeEnter([FromSource] CitizenFX.Core.Player source, int id)
@@ -396,6 +462,18 @@ namespace RageMP.FiveM.Bridge.Host
             public string PlayerHandle { get; }
             public string Name { get; }
             public TaskCompletionSource<object?> Completion { get; }
+        }
+
+        private sealed class ScheduledAction
+        {
+            public ScheduledAction(long dueTicks, Action action)
+            {
+                DueTicks = dueTicks;
+                Action = action;
+            }
+
+            public long DueTicks { get; }
+            public Action Action { get; }
         }
     }
 }

@@ -90,6 +90,10 @@ namespace RageMP.FiveM.Bridge.Host
                 API.SetVehicleNumberPlateText(handle, vehicle.NumberPlate ?? string.Empty);
                 API.SetVehicleDoorsLocked(handle, vehicle.Locked ? 2 : 1);
             }
+            else if (entity is GTANetworkAPI.Ped ped)
+            {
+                API.FreezeEntityPosition(handle, ped.Frozen);
+            }
         }
 
         public void DeleteNetworkEntity(RageEntity entity)
