@@ -84,20 +84,26 @@ namespace RageMP.FiveM.Bridge
             return command.InvokeAsync(player, arguments);
         }
 
-        public Task DispatchRemoteAsync(string eventName, Player player, params object?[] arguments)
+        public Task<object?> DispatchRemoteAsync(string eventName, Player player, params object?[] arguments)
         {
             if (!_remoteEvents.TryGetValue(eventName, out var handlers))
                 throw new KeyNotFoundException("Remote event is not registered: " + eventName);
             return DispatchRemoteHandlersAsync(eventName, handlers, player, arguments);
         }
 
-        private async Task DispatchRemoteHandlersAsync(string eventName, IEnumerable<Handler> handlers, Player player, object?[] arguments)
+        private async Task<object?> DispatchRemoteHandlersAsync(string eventName, IEnumerable<Handler> handlers, Player player, object?[] arguments)
         {
+            object? result = null;
             foreach (var handler in handlers)
             {
-                try { await handler.InvokeAsync(PrependPlayerIfRequired(handler.Method, player, arguments)); }
+                try
+                {
+                    var value = await handler.InvokeAsync(PrependPlayerIfRequired(handler.Method, player, arguments));
+                    if (value != null) result = value;
+                }
                 catch (Exception error) { ReportHandlerError("remote " + eventName, handler.Method, error); }
             }
+            return result;
         }
 
         private static void RegisterRemoteHandler(string name, List<Handler> handlers, Handler candidate)
@@ -189,7 +195,7 @@ namespace RageMP.FiveM.Bridge
                 }
             }
 
-            public async Task InvokeAsync(object?[] supplied)
+            public async Task<object?> InvokeAsync(object?[] supplied)
             {
                 var parameters = Method.GetParameters();
                 if (parameters.Length != supplied.Length)
@@ -198,7 +204,10 @@ namespace RageMP.FiveM.Bridge
                 for (var index = 0; index < supplied.Length; index++)
                     converted[index] = ConvertArgument(supplied[index], parameters[index].ParameterType);
                 var result = Method.Invoke(_target, converted);
-                if (result is Task task) await task;
+                if (!(result is Task task)) return result;
+                await task;
+                var resultProperty = task.GetType().GetProperty("Result", BindingFlags.Instance | BindingFlags.Public);
+                return resultProperty?.GetValue(task);
             }
 
             private static object? ConvertArgument(object? value, Type targetType)

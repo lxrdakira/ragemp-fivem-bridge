@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using CitizenFX.Core;
 using CitizenFX.Core.Native;
 using GTANetworkAPI;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using RageMP.FiveM.Bridge;
 
 namespace RageMP.FiveM.Bridge.Host
@@ -58,6 +60,7 @@ namespace RageMP.FiveM.Bridge.Host
             EventHandlers["ragemp:colshape:enter"] += new Action<CitizenFX.Core.Player, int>(OnColshapeEnter);
             EventHandlers["ragemp:colshape:exit"] += new Action<CitizenFX.Core.Player, int>(OnColshapeExit);
             EventHandlers["ragemp:callProcResult"] += new Action<CitizenFX.Core.Player, int, string?, object?>(OnClientProcedureResult);
+            EventHandlers["__rpc:process"] += new Action<CitizenFX.Core.Player, string>(OnLegacyRpcProcess);
             EventHandlers["onResourceStop"] += new Action<string>(OnResourceStop);
         }
 
@@ -159,6 +162,67 @@ namespace RageMP.FiveM.Bridge.Host
             if (!_pendingClientProcedures.TryRemove(requestId, out pending)) return;
             if (!string.IsNullOrEmpty(error)) pending.Completion.TrySetException(new InvalidOperationException(error));
             else pending.Completion.TrySetResult(result);
+        }
+
+        private async void OnLegacyRpcProcess([FromSource] CitizenFX.Core.Player source, string json)
+        {
+            JToken? requestId = null;
+            var noReturn = false;
+            try
+            {
+                if (!_initialized) throw new InvalidOperationException("Server resource is not initialized");
+                var request = JObject.Parse(json);
+                if (request.Value<int?>("req") != 1) return;
+                requestId = request["id"]?.DeepClone();
+                noReturn = request.Value<int?>("noRet") == 1;
+                var eventName = request.Value<string>("name");
+                if (string.IsNullOrWhiteSpace(eventName)) throw new ArgumentException("RPC event name is missing");
+
+                var descriptor = _dispatcher.RemoteEvents.FirstOrDefault(item =>
+                    string.Equals(item.Name, eventName, StringComparison.Ordinal));
+                if (descriptor == null) throw new KeyNotFoundException("PROCEDURE_NOT_FOUND");
+
+                var argsToken = request["args"];
+                var supplied = argsToken is JArray array
+                    ? array.Cast<object?>().ToArray()
+                    : argsToken == null || argsToken.Type == JTokenType.Null
+                        ? Array.Empty<object?>()
+                        : new object?[] { argsToken };
+                if (supplied.Length < descriptor.RequiredArgumentCount || supplied.Length > descriptor.ArgumentCount)
+                    throw new TargetParameterCountException($"{eventName} expects {descriptor.RequiredArgumentCount}..{descriptor.ArgumentCount} arguments, received {supplied.Length}");
+                if (supplied.Length < descriptor.ArgumentCount)
+                {
+                    var padded = new object?[descriptor.ArgumentCount];
+                    Array.Copy(supplied, padded, supplied.Length);
+                    for (var index = supplied.Length; index < padded.Length; index++)
+                        padded[index] = descriptor.DefaultArguments[index];
+                    supplied = padded;
+                }
+
+                var result = await _dispatcher.DispatchRemoteAsync(eventName!, _players.GetOrCreate(source), supplied);
+                if (!noReturn) SendLegacyRpcResponse(source, requestId, result, null);
+            }
+            catch (Exception error)
+            {
+                var actual = error is TargetInvocationException && error.InnerException != null ? error.InnerException : error;
+                Debug.WriteLine("[ragemp-csharp] legacy RPC failed: " + actual);
+                if (!noReturn) SendLegacyRpcResponse(source, requestId, null, actual.Message);
+            }
+        }
+
+        private void SendLegacyRpcResponse(CitizenFX.Core.Player player, JToken? requestId, object? result, string? error)
+        {
+            var response = new JObject
+            {
+                ["ret"] = 1,
+                ["id"] = requestId ?? JValue.CreateNull(),
+                ["env"] = "server"
+            };
+            if (string.IsNullOrEmpty(error))
+                response["res"] = result == null ? JValue.CreateNull() : JToken.FromObject(result);
+            else
+                response["err"] = error;
+            TriggerClientEventWhenReady(player, "__rpc:process", new object[] { JsonConvert.SerializeObject(response) });
         }
 
         private async Task InitializeOnFirstTick()

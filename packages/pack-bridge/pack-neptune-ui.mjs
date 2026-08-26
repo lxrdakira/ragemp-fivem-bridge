@@ -31,6 +31,7 @@ await cp(join(clientPackages, "rage-rpc.min.js"), join(outDir, "rage-rpc.min.js"
 await cp(bridgeCef, join(outDir, "ui/_bridge.js"));
 await cp(join(here, "neptune-ui-host.html"), join(outDir, "ui/host.html"));
 await cp(join(here, "neptune-ui-dev.js"), join(outDir, "client/dev-bootstrap.js"));
+await cp(join(here, "neptune-client-compat.js"), join(outDir, "client/neptune-compat.js"));
 
 const patchedInterfaceFiles = new Set([
   "local.html",
@@ -170,7 +171,8 @@ dependency 'ragemp-fivem-bridge'
 client_scripts {
     '@ragemp-fivem-bridge/client.js',
     'rage-rpc.min.js',
-    'main.js'${portable ? "" : ",\n    'client/dev-bootstrap.js'"}
+    'main.js',
+    'client/neptune-compat.js'${portable ? "" : ",\n    'client/dev-bootstrap.js'"}
 }
 
 ui_page 'ui/host.html'

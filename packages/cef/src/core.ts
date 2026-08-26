@@ -136,12 +136,16 @@ export function createRuntime(): {
   const events = new EventManager(getSelfId);
 
   const mp: Record<string, unknown> = {
-    trigger(eventName: string, ...args: unknown[]): void {
+    async trigger(eventName: string, ...args: unknown[]): Promise<unknown> {
       log("trigger ->client", eventName, "from", selfId);
-      toClient("ragemp:browserEvent", { browserId: selfId, event: eventName, args });
+      const response = await toClient("ragemp:browserEvent", { browserId: selfId, event: eventName, args });
+      if (!response) return undefined;
+      const payload = await response.json().catch(() => ({})) as { result?: unknown; error?: string };
+      if (payload.error) throw new Error(payload.error);
+      return payload.result;
     },
-    invoke(eventName: string, ...args: unknown[]): void {
-      (mp.trigger as (...a: unknown[]) => void)(eventName, ...args);
+    invoke(eventName: string, ...args: unknown[]): Promise<unknown> {
+      return (mp.trigger as (...a: unknown[]) => Promise<unknown>)(eventName, ...args);
     },
     events,
     cef: {

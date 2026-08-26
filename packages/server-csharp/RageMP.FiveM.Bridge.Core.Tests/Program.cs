@@ -10,6 +10,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Vector3 contract", TestVector),
     ("Entity data contract", TestEntityData),
     ("Remote event dispatch", TestRemoteEvent),
+    ("Remote event return value", TestRemoteEventReturnValue),
     ("Static remote event dispatch", TestStaticRemoteEvent),
     ("Duplicate remote event dispatch", TestDuplicateRemoteEvent),
     ("Ordered async remote event dispatch", TestOrderedAsyncRemoteEvent),
@@ -74,6 +75,14 @@ static async Task TestRemoteEvent()
     await dispatcher.DispatchRemoteAsync("auth.login", NewPlayer(11), "alice", 19L);
     Equal("alice:19:11", script.LoginResult);
     Equal(2, dispatcher.RemoteEventCount);
+}
+
+static async Task TestRemoteEventReturnValue()
+{
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(new ReturningRemoteScript());
+    Equal("sync:4", await dispatcher.DispatchRemoteAsync("return.sync", NewPlayer(12), 4));
+    Equal("async:5", await dispatcher.DispatchRemoteAsync("return.async", NewPlayer(12), 5));
 }
 
 static async Task TestServerEvent()
@@ -462,6 +471,19 @@ sealed class DuplicateScript : Script
     public static int CallCount { get; set; }
     [RemoteEvent("shared.action")]
     private void Handle(Player player, int value) => CallCount += value;
+}
+
+sealed class ReturningRemoteScript : Script
+{
+    [RemoteEvent("return.sync")]
+    private object HandleSync(Player player, int value) => $"sync:{value}";
+
+    [RemoteEvent("return.async")]
+    private async Task<object> HandleAsync(Player player, int value)
+    {
+        await Task.Yield();
+        return $"async:{value}";
+    }
 }
 
 sealed class DuplicateScriptTwo : Script

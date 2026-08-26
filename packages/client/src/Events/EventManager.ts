@@ -46,6 +46,12 @@ export class EventManager extends EventEmitter {
     ClientEventManagerInternals.get(this).procs?.delete(procName);
   }
 
+  callProc(procName: string, ...args: any[]): Promise<any> {
+    const handler = ClientEventManagerInternals.get(this).procs?.get(procName);
+    if (!handler) return Promise.reject(new Error(`Proc not found: ${procName}`));
+    return Promise.resolve().then(() => handler(...args));
+  }
+
   callRemoteProc(procName: string, ...args: any[]): Promise<any> {
     const rec = ClientEventManagerInternals.get(this);
     if (!rec.pendingProcs) rec.pendingProcs = new Map();

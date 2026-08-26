@@ -15,6 +15,8 @@ main-thread checks; all FiveM-specific behavior lives in this repository.
 - server vehicles, objects, peds, controller ownership and entity recreation;
 - markers, labels, blips, checkpoints, colshapes and routing buckets;
 - shared data/state bags, client events and client procedures;
+- return-value-preserving CEF-to-client calls and the legacy `rage-rpc`
+  CEF-to-C# tunnel;
 - real FiveM DUI-backed RAGE headless browsers for world-space CEF markers;
 - weather, time, IPL and world-prop state replay for joining clients;
 - original JavaScript client plus original Svelte/legacy CEF interfaces;
@@ -27,8 +29,9 @@ pnpm run verify:neptune
 ```
 
 It audits the original client API calls, verifies 851 literal and dynamically
-constructed client/server event contracts plus all server lifecycle emitters,
-runs the C# contract suite, builds the bridge/client/CEF, compiles the complete
+constructed client/server event contracts, 48 active CEF-to-client routes, 13
+active CEF server procedures, and all server lifecycle emitters. It then runs
+the C# contract suite, builds the bridge/client/CEF, compiles the complete
 NeptuneEvo assembly, and repacks the development resources. This is a static
 gate; an end-to-end gameplay claim still requires an allowed FXServer + MySQL
 test run.

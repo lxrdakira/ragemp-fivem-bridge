@@ -27,6 +27,17 @@ function callCancelable(eventName: string, ...args: any[]): boolean {
   return cancelled;
 }
 
+async function callWithResult(eventName: string, ...args: any[]): Promise<any> {
+  const events = globalThis.mp?.events;
+  if (!events) return undefined;
+  let result: any = undefined;
+  for (const handler of events.getAllOf?.(eventName) ?? []) {
+    const value = await handler(...args);
+    if (value !== undefined) result = value;
+  }
+  return result;
+}
+
 function findBrowser(pool: BrowserMpPool, id: unknown) {
   const numericId = typeof id === "number" ? id : Number(id);
   return Number.isFinite(numericId) ? pool.at(numericId) : null;
@@ -71,7 +82,7 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
   });
 
   RegisterNuiCallbackType("ragemp:browserEvent");
-  on("__cfx_nui:ragemp:browserEvent", (data: any, cb: (result: Record<string, never>) => void) => {
+  on("__cfx_nui:ragemp:browserEvent", async (data: any, cb: (result: Record<string, unknown>) => void) => {
     const { event, args } = data;
     if (event === "command") {
       const command = String(args?.[0] ?? "").trim();
@@ -96,7 +107,14 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
       return;
     }
     if (event && globalThis.mp?.events) {
-      globalThis.mp.events.call(event, ...(args ?? []));
+      try {
+        const result = await callWithResult(event, ...(args ?? []));
+        cb({ result });
+      } catch (error) {
+        console.error(`[ragemp:${event}] browser handler error`, error);
+        cb({ error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
     }
     cb({});
   });

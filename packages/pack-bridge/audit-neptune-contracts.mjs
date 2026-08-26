@@ -7,6 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const bridgeRoot = resolve(here, "../..");
 const projectRoot = resolve(bridgeRoot, "..");
 const clientBundlePath = resolve(projectRoot, "client_packages/main.js");
+const cefBundlePath = resolve(projectRoot, "client_packages/interface/build/bundle.js");
 const clientSourceRoot = resolve(projectRoot, "src_client");
 const serverSourceRoot = resolve(projectRoot, "dotnet/resources/NeptuneEvo");
 const portSourceRoot = resolve(bridgeRoot, "packages/server-csharp/NeptuneEvo.Port");
@@ -50,6 +51,16 @@ const requiredFiveMAdapters = new Set([
   "server.notify", "server.phone.updStatus", "server.vehicle.rentend",
 ]);
 
+// Active calls retained by the current UI bundle but never implemented by
+// the original RAGE C# server. They are audited separately from migration
+// gaps; the legacy RPC tunnel below still services every implemented route.
+const upstreamDeadCefServerProcedures = new Set([
+  "BattlePass-Claim", "BattlePass-RequestData",
+  "Binds-Fetch", "Binds-SetKey",
+  "Player-GetAllSettings", "Player-SetSettingValue",
+  "PlayerSkills-GetAll", "Quest-ClaimExp", "Vehicle-GetPlayerList",
+]);
+
 function collectFiles(root, extension) {
   const result = [];
   const visit = (directory) => {
@@ -64,7 +75,7 @@ function collectFiles(root, extension) {
   return result;
 }
 
-for (const required of [clientBundlePath, clientSourceRoot, serverSourceRoot, portSourceRoot, hostSourcePath]) {
+for (const required of [clientBundlePath, cefBundlePath, clientSourceRoot, serverSourceRoot, portSourceRoot, hostSourcePath]) {
   if (!existsSync(required)) throw new Error(`required Neptune contract input is missing: ${required}`);
 }
 
@@ -127,6 +138,19 @@ const staleAllowlistEntries = [...upstreamDeadRemoteEvents]
   .sort();
 const missingAdapters = [...requiredFiveMAdapters].filter((name) => !serverRemoteEvents.has(name)).sort();
 
+const cefBundle = readFileSync(cefBundlePath, "utf8")
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/^\s*\/\/.*$/gm, "");
+const cefServerProcedures = new Set();
+for (const match of cefBundle.matchAll(/(?:executeServer\)|\.callServer)\(\s*["']([^"']+)["']/g))
+  cefServerProcedures.add(match[1]);
+const missingCefServerProcedures = [...cefServerProcedures]
+  .filter((name) => !serverRemoteEvents.has(name) && !upstreamDeadCefServerProcedures.has(name))
+  .sort();
+const staleCefServerBaseline = [...upstreamDeadCefServerProcedures]
+  .filter((name) => !cefServerProcedures.has(name) || serverRemoteEvents.has(name))
+  .sort();
+
 const serverEvents = new Set();
 for (const source of csharpSources) {
   for (const match of source.matchAll(/\[ServerEvent\s*\(\s*Event\.([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\]/g))
@@ -142,12 +166,15 @@ console.log(`[neptune-contracts] ${clientRemoteEvents.size} client remote events
 console.log(`[neptune-contracts] ${serverRemoteEvents.size} resolved server remote events; ${unresolvedAttributes.length} unresolved attributes`);
 console.log(`[neptune-contracts] ${missingRemoteEvents.length} unexpected missing remote events; ${staleAllowlistEntries.length} stale baseline entries`);
 console.log(`[neptune-contracts] ${serverEvents.size} server lifecycle events; ${missingServerEvents.length} missing host emitters`);
+console.log(`[neptune-contracts] ${cefServerProcedures.size} CEF server procedures; ${missingCefServerProcedures.length} unexpected missing routes`);
 
 for (const name of missingRemoteEvents) console.error(`  missing remote: ${name}`);
 for (const name of missingAdapters) console.error(`  missing FiveM adapter: ${name}`);
 for (const name of missingServerEvents) console.error(`  missing lifecycle emitter: Event.${name}`);
 for (const name of staleAllowlistEntries) console.error(`  stale upstream-dead baseline entry: ${name}`);
+for (const name of missingCefServerProcedures) console.error(`  missing CEF server procedure: ${name}`);
+for (const name of staleCefServerBaseline) console.error(`  stale CEF server baseline entry: ${name}`);
 for (const attribute of unresolvedAttributes) console.error(`  unresolved RemoteEvent attribute: ${attribute}`);
 
-if (missingRemoteEvents.length || missingAdapters.length || missingServerEvents.length || staleAllowlistEntries.length || unresolvedAttributes.length)
+if (missingRemoteEvents.length || missingAdapters.length || missingServerEvents.length || staleAllowlistEntries.length || unresolvedAttributes.length || missingCefServerProcedures.length || staleCefServerBaseline.length)
   process.exitCode = 1;
