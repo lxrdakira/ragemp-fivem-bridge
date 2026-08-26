@@ -4,6 +4,7 @@ import type { PlayerMp } from "../Entities/PlayerMp";
 export interface PlayerInternalsRec {
   playerIndex: number;
   dimension: number | undefined;
+  typingInTextChat: boolean;
   voiceFX: any;
 }
 
@@ -17,6 +18,7 @@ export function initPlayerInternals(player: PlayerMp, playerIndex: number): Play
   return PlayerInternals.init(player, {
     playerIndex,
     dimension: undefined,
+    typingInTextChat: false,
     voiceFX: undefined,
   });
 }

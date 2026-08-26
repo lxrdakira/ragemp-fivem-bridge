@@ -61,6 +61,12 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
       cb({});
       return;
     }
+    if (event === "setTypingInChatState") {
+      const localPlayer = globalThis.mp?.players?.local;
+      if (localPlayer) localPlayer.isTypingInTextChat = !!args?.[0];
+      cb({});
+      return;
+    }
     if (event && globalThis.mp?.events) {
       globalThis.mp.events.call(event, ...(args ?? []));
     }

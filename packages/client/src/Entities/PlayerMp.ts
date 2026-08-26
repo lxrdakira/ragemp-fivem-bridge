@@ -59,7 +59,11 @@ export class PlayerMp extends PedMpBase {
   }
 
   get isTypingInTextChat(): boolean {
-    return false;
+    return PlayerInternals.get(this).typingInTextChat;
+  }
+
+  set isTypingInTextChat(value: boolean) {
+    PlayerInternals.get(this).typingInTextChat = !!value;
   }
 
   get isVoiceActive(): boolean {
