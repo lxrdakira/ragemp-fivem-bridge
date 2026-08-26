@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>NeptuneEvo.Port.net</AssemblyName>
+    <RootNamespace>NeptuneEvo</RootNamespace>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>embedded</DebugType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RageMP.FiveM.Bridge.Core\RageMP.FiveM.Bridge.Core.csproj" />
+    <!-- Migration starts from the real NeptuneEvo source. Files are added here
+         in coherent vertical slices as their API dependencies are implemented. -->
+    <Compile Include="..\..\..\..\dotnet\resources\NeptuneEvo\Main.cs" Link="NeptuneEvo\Main.cs" />
+  </ItemGroup>
+</Project>

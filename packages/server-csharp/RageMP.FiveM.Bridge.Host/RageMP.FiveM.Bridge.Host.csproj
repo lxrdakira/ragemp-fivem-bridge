@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>RageMP.FiveM.Bridge.Host.net</AssemblyName>
+    <RootNamespace>RageMP.FiveM.Bridge.Host</RootNamespace>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>embedded</DebugType>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RageMP.FiveM.Bridge.Core\RageMP.FiveM.Bridge.Core.csproj" />
+    <PackageReference Include="CitizenFX.Core.Server" Version="1.0.26803" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

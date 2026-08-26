@@ -21,7 +21,18 @@ function bridgeDist(pkg) {
   );
 }
 
-const FXMANIFEST = `fx_version 'cerulean'
+function fxManifest({ withCsharp, withNeptune }) {
+  const serverScripts = ["    'server.js'"];
+  if (withCsharp) serverScripts.push("    'csharp/RageMP.FiveM.Bridge.Host.net.dll'");
+  if (withNeptune) serverScripts.push("    'csharp/NeptuneEvo.Port.net.dll'");
+
+  const files = ["    'ui/_bridge.js'"];
+  if (withCsharp) {
+    files.push("    'csharp/RageMP.FiveM.Bridge.Core.dll'");
+    files.push("    'csharp/Newtonsoft.Json.dll'");
+  }
+
+  return `fx_version 'cerulean'
 game 'gta5'
 
 name 'ragemp-fivem-bridge'
@@ -33,13 +44,16 @@ ragemp_bridge 'library'
 -- Optional plugins (disabled by default). Uncomment a line to enable:
 -- bridge_world_vehicles 'yes' -- spawn server vehicles anywhere on the map (CreateVehicleServerSetter + retry queue)
 
-server_script 'server.js'
+server_scripts {
+${serverScripts.join(',\n')}
+}
 client_script 'client.js'
 
 files {
-    'ui/_bridge.js'
+${files.join(',\n')}
 }
 `;
+}
 
 function parseFlags(argv) {
   const flags = {};
@@ -47,6 +61,8 @@ function parseFlags(argv) {
     const arg = argv[i];
     if (arg === "--out" || arg === "-o") flags.out = argv[++i];
     else if (arg.startsWith("--out=")) flags.out = arg.slice(6);
+    else if (arg === "--with-csharp") flags.withCsharp = true;
+    else if (arg === "--with-neptune") flags.withNeptune = true;
   }
   return flags;
 }
@@ -70,7 +86,30 @@ export async function packBridge(flags = {}) {
   await cp(bridgeDist("cef"), join(outDir, "ui", "_bridge.js"));
   console.log("  + ui/_bridge.js");
 
-  await writeFile(join(outDir, "fxmanifest.lua"), FXMANIFEST, "utf8");
+  if (flags.withNeptune && !flags.withCsharp) {
+    throw new Error("--with-neptune requires --with-csharp");
+  }
+
+  if (flags.withCsharp) {
+    const csharpDir = join(outDir, "csharp");
+    const hostDir = resolve(PACKAGES_ROOT, "server-csharp", "RageMP.FiveM.Bridge.Host", "bin", "Release", "netstandard2.0");
+    await mkdir(csharpDir, { recursive: true });
+    for (const file of ["RageMP.FiveM.Bridge.Core.dll", "RageMP.FiveM.Bridge.Host.net.dll", "Newtonsoft.Json.dll"]) {
+      const source = join(hostDir, file);
+      if (!existsSync(source)) throw new Error(`C# bridge output not found: ${source}`);
+      await cp(source, join(csharpDir, file));
+      console.log(`  + csharp/${file}`);
+    }
+  }
+
+  if (flags.withNeptune) {
+    const source = resolve(PACKAGES_ROOT, "server-csharp", "NeptuneEvo.Port", "bin", "Release", "netstandard2.0", "NeptuneEvo.Port.net.dll");
+    if (!existsSync(source)) throw new Error(`NeptuneEvo port output not found: ${source}`);
+    await cp(source, join(outDir, "csharp", "NeptuneEvo.Port.net.dll"));
+    console.log("  + csharp/NeptuneEvo.Port.net.dll");
+  }
+
+  await writeFile(join(outDir, "fxmanifest.lua"), fxManifest(flags), "utf8");
   console.log("  + fxmanifest.lua");
 
   console.log(`\n  Done. Drop '${relative(process.cwd(), outDir) || outDir}/' into your FiveM server's resources folder.`);

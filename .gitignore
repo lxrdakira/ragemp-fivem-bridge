@@ -23,3 +23,7 @@ examples/*/node_modules
 # Native generator input (2.6MB; regenerate locally) + generated report
 scripts/assets/
 NATIVE_GAPS.md
+
+# C# compatibility build outputs
+**/bin/
+**/obj/
