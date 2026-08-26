@@ -216,6 +216,10 @@ static Task TestPlayerStateSynchronization()
     var runtime = new FakeRuntime();
     BridgeRuntime.Configure(runtime);
     var player = NewPlayer(22);
+    player.Name = "John_Doe";
+    Equal("John_Doe", player.Name);
+    Equal("__bridgeName", runtime.SharedData.Single().Key);
+    Equal("John_Doe", runtime.SharedData.Single().Value);
     player.ApplyNetworkState(new Vector3(1, 2, 3), 45f, 80, 25, 30, 4, true);
     Equal(0, runtime.ClientEvents.Count);
     Equal(new Vector3(1, 2, 3), player.Position);
@@ -231,6 +235,11 @@ static Task TestPlayerStateSynchronization()
     Equal("ragemp:setArmour", runtime.ClientEvents[2].EventName);
     Equal("ragemp:setAlpha", runtime.ClientEvents[3].EventName);
     Equal("ragemp:setDimension", runtime.ClientEvents[4].EventName);
+    runtime.ClientEvents.Clear();
+    NAPI.Player.SpawnPlayer(player, new Vector3(12, 13, 14), 180f);
+    Equal(new Vector3(12, 13, 14), player.Position);
+    Equal(180f, player.Rotation.Z);
+    Equal("ragemp:spawnmanager:spawn", runtime.ClientEvents.Single().EventName);
     return Task.CompletedTask;
 }
 
@@ -298,6 +307,11 @@ static Task TestEntityNetworkSync()
     marker.Delete();
     Equal("ragemp:markerDestroy", runtime.BroadcastEvents[2].EventName);
     Equal(false, RAGE.Entities.Markers.All.Contains(marker));
+    var label = NAPI.TextLabel.CreateTextLabel("Bridge", new Vector3(1, 2, 3), 50f, 0.8f, 4, new Color(10, 20, 30, 40));
+    Equal("ragemp:labelCreate", runtime.BroadcastEvents[3].EventName);
+    var labelPayload = (Dictionary<string, object>)runtime.BroadcastEvents[3].Arguments[0];
+    Equal(0.8f, labelPayload["size"]);
+    label.Delete();
     return Task.CompletedTask;
 }
 

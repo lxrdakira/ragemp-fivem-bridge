@@ -10,6 +10,7 @@ export interface TextLabelInternalsRec {
   b: number;
   a: number;
   drawDistance: number;
+  size: number;
   los: boolean;
   font: number;
   visible: boolean;
@@ -27,6 +28,7 @@ export function initTextLabelInternals(label: TextLabelMp): TextLabelInternalsRe
     b: 255,
     a: 255,
     drawDistance: 50,
+    size: 0.35,
     los: false,
     font: 0,
     visible: true,

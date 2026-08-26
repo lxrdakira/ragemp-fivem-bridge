@@ -56,7 +56,12 @@ namespace GTANetworkAPI
         public List<Player> GetPlayersInRadiusOfPosition(double radius, Vector3 position) => RAGE.Entities.Players.All.Where(player => player.Position.DistanceTo(position) <= radius).ToList();
         public void KickPlayer(Player player, string reason) => player.Kick(reason);
         public void KickPlayer(Player player) => player.Kick();
-        public void SpawnPlayer(Player player, Vector3 position, float heading = 0) => player.TriggerEvent("ragemp:spawnmanager:spawn", new Dictionary<string, object> { ["x"] = position.X, ["y"] = position.Y, ["z"] = position.Z, ["heading"] = heading, ["model"] = player.Model });
+        public void SpawnPlayer(Player player, Vector3 position, float heading = 0)
+        {
+            var spawn = position ?? new Vector3();
+            player.ApplyNetworkState(spawn, heading, player.Health, player.Armor, player.Ping, player.Dimension);
+            player.TriggerEvent("ragemp:spawnmanager:spawn", new Dictionary<string, object> { ["x"] = spawn.X, ["y"] = spawn.Y, ["z"] = spawn.Z, ["heading"] = heading, ["model"] = player.Model });
+        }
         public void PlayPlayerAnimation(Player player, int flags, string dictionary, string name, float speed = 8f) => player.TriggerEvent("ragemp:playAnimation", dictionary, name, speed, flags);
         public void StopPlayerAnimation(Player player) => player.TriggerEvent("ragemp:stopAnimation");
         public void SetPlayerClothes(Player player, int component, int drawable, int texture) => player.TriggerEvent("ragemp:setClothes", component, drawable, texture, 0);
@@ -167,7 +172,7 @@ namespace GTANetworkAPI
 
     public sealed class TextLabelMethods
     {
-        public TextLabel CreateTextLabel(string text, Vector3 position, float range, float size, int font, Color color, bool seethrough = false, uint dimension = 0) { var label = RAGE.Entities.TextLabels.Create(); label.Text = text; label.Position = position; label.Range = range; label.Font = font; label.Color = color; label.Seethrough = seethrough; label.Dimension = dimension; EntityNetworkSync.Publish(label); return label; }
+        public TextLabel CreateTextLabel(string text, Vector3 position, float range, float size, int font, Color color, bool seethrough = false, uint dimension = 0) { var label = RAGE.Entities.TextLabels.Create(); label.Text = text; label.Position = position; label.Range = range; label.Size = size; label.Font = font; label.Color = color; label.Seethrough = seethrough; label.Dimension = dimension; EntityNetworkSync.Publish(label); return label; }
         public void SetTextLabelText(NetHandle handle, string text) { var label = RAGE.Entities.TextLabels.Get(handle.Value); if (label != null) label.Text = text; }
     }
 

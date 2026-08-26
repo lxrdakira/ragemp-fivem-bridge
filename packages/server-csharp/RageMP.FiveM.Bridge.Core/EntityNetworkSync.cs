@@ -220,7 +220,7 @@ namespace GTANetworkAPI
             }
             else if (entity is TextLabel label)
             {
-                data["text"] = label.Text; AddColor(data, label.Color); data["drawDistance"] = label.Range; data["los"] = label.Seethrough; data["font"] = label.Font;
+                data["text"] = label.Text; AddColor(data, label.Color); data["drawDistance"] = label.Range; data["size"] = label.Size; data["los"] = label.Seethrough; data["font"] = label.Font;
             }
             else if (entity is Blip blip)
             {

@@ -37,6 +37,8 @@ export class PlayerMp extends PedMpBase {
   }
 
   get name(): string {
+    const bridgeName = this.getVariable("__bridgeName");
+    if (typeof bridgeName === "string" && bridgeName.length > 0) return bridgeName;
     const playerIndex = PlayerInternals.get(this).playerIndex;
     return playerIndex >= 0 ? (GetPlayerName(playerIndex) ?? "") : "";
   }

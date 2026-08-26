@@ -47,6 +47,14 @@ export class TextLabelMp extends Entity {
     TextLabelInternals.get(this).drawDistance = value;
   }
 
+  get size(): number {
+    return TextLabelInternals.get(this).size;
+  }
+
+  set size(value: number) {
+    TextLabelInternals.get(this).size = value;
+  }
+
   get los(): boolean {
     return TextLabelInternals.get(this).los;
   }

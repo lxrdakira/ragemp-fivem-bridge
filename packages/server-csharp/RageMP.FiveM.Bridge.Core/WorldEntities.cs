@@ -52,11 +52,12 @@ namespace GTANetworkAPI
     public class TextLabel : Entity
     {
         public TextLabel(NetHandle handle) : base(handle) { }
-        private string _text = string.Empty; private Color _color = new Color(255, 255, 255); private bool _seethrough; private float _range;
+        private string _text = string.Empty; private Color _color = new Color(255, 255, 255); private bool _seethrough; private float _range; private float _size = 0.35f;
         public string Text { get => _text; set { _text = value ?? string.Empty; SyncNetworkState(); } }
         public Color Color { get => _color; set { _color = value ?? new Color(); SyncNetworkState(); } }
         public bool Seethrough { get => _seethrough; set { _seethrough = value; SyncNetworkState(); } }
         public float Range { get => _range; set { _range = value; SyncNetworkState(); } }
+        public float Size { get => _size; set { _size = value; SyncNetworkState(); } }
         public int Font { get; internal set; }
     }
 

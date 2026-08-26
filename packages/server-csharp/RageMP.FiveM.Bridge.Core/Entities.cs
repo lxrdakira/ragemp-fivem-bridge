@@ -103,11 +103,21 @@ namespace GTANetworkAPI
 
     public class Player : Entity
     {
+        internal const string BridgeNameDataKey = "__bridgeName";
         private int _health = 100;
         private int _armor;
+        private string _name = string.Empty;
 
         public Player(NetHandle handle) : base(handle) { }
-        public string Name { get; set; } = string.Empty;
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                _name = value ?? string.Empty;
+                SetSharedData(BridgeNameDataKey, _name);
+            }
+        }
         public string Serial { get; internal set; } = string.Empty;
         public string SocialClubName { get; internal set; } = string.Empty;
         public ulong SocialClubId { get; internal set; }

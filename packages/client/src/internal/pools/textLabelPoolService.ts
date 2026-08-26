@@ -23,6 +23,7 @@ function createFromData(pool: TextLabelMpPool, data: any): TextLabelMp {
   rec.b = data.b;
   rec.a = data.a;
   rec.drawDistance = data.drawDistance;
+  rec.size = Number.isFinite(data.size) ? data.size : 0.35;
   rec.los = data.los;
   rec.font = data.font;
   rec.dimension = data.dimension ?? 0;
@@ -51,6 +52,7 @@ export function setupTextLabelPool(pool: TextLabelMpPool): void {
         rec.b = data.b;
         rec.a = data.a;
         rec.drawDistance = data.drawDistance;
+        rec.size = Number.isFinite(data.size) ? data.size : 0.35;
         rec.los = data.los;
         rec.font = data.font;
         rec.dimension = data.dimension ?? 0;
@@ -93,7 +95,7 @@ function startRendering(pool: TextLabelMpPool): void {
 
       SetDrawOrigin(pos.x, pos.y, pos.z, 0);
       SetTextFont(rec.font);
-      SetTextScale(0.0, 0.35);
+      SetTextScale(0.0, rec.size);
       SetTextColour(rec.r, rec.g, rec.b, rec.a);
       SetTextOutline();
       SetTextCentre(true);
