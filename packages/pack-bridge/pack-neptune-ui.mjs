@@ -44,6 +44,12 @@ const patchedInterfaceFiles = new Set([
 
 function patchInterfaceSource(source, relativePath) {
   let patched = source;
+  if (relativePath.toLowerCase().endsWith(".html")) {
+    patched = patched.replace(
+      /((?:src|href)\s*=\s*["'])package:\/\/([^"']+)/gi,
+      (_match, prefix, packagePath) => `${prefix}/${packagePath}`,
+    );
+  }
   if (relativePath.toLowerCase().endsWith(".html") && !patched.includes("/ui/_bridge.js")) {
     const bridgeTag = '<script src="/ui/_bridge.js" data-ragemp-bridge="1"></script>';
     if (/<head(?:\s[^>]*)?>/i.test(patched)) {
@@ -60,6 +66,41 @@ function patchInterfaceSource(source, relativePath) {
     (_match, _quote, suffix = "") =>
       `window.__ragempResolvePackageUrl("package://interface${suffix}")`,
   );
+}
+
+function patchBrowserAssetSource(source, relativePath) {
+  let patched = patchInterfaceSource(source, relativePath);
+  const normalizedPath = relativePath.replace(/\\/g, "/").toLowerCase();
+  if (normalizedPath === "sounds/index.html") {
+    const from = "      if (!url) return '';";
+    const to = "      if (!url) return '';\n      if (url.startsWith('local://')) url = 'package://' + url.slice('local://'.length);";
+    const returnFrom = "      return url;\n    }\n\n    function clampVolume";
+    const returnTo = "      return url.startsWith('package://') ? window.__ragempResolvePackageUrl(url) : url;\n    }\n\n    function clampVolume";
+    if (!patched.includes(from) || !patched.includes(returnFrom))
+      throw new Error("Expected legacy sounds URL contract is missing");
+    return patched.replace(from, to).replace(returnFrom, returnTo);
+  }
+  if (normalizedPath !== "soundapi/index.js") return patched;
+
+  const replacements = [
+    [
+      '__localBase="package://soundapi/../"',
+      '__localBase=window.__ragempResolvePackageUrl("package://soundapi/../")',
+    ],
+    [
+      'if(n.startsWith("local://"))return"package://"+n.slice(8);',
+      'if(n.startsWith("local://"))return window.__ragempResolvePackageUrl("package://"+n.slice(8));',
+    ],
+    [
+      'if(n.startsWith("package://")||n.startsWith("http://")||n.startsWith("https://"))return n;',
+      'if(n.startsWith("package://")||n.startsWith("http://")||n.startsWith("https://"))return n.startsWith("package://")?window.__ragempResolvePackageUrl(n):n;',
+    ],
+  ];
+  for (const [from, to] of replacements) {
+    if (!patched.includes(from)) throw new Error(`Expected sound API URL contract is missing: ${from}`);
+    patched = patched.replace(from, to);
+  }
+  return patched;
 }
 
 async function createInterfaceOverlay(sourceRoot, targetRoot, relativeDir = "") {
@@ -101,14 +142,15 @@ for (const name of assetDirs) {
     // DUI pages do not have the manager iframe available to inject the bridge
     // at runtime, so browser HTML entry points receive the bridge tag in the
     // generated resource. Non-HTML files are copied byte-for-byte.
-    const copyBrowserAssets = async (from, to) => {
+    const copyBrowserAssets = async (from, to, relative = name) => {
       await mkdir(to, { recursive: true });
       for (const entry of await readdir(from, { withFileTypes: true })) {
         const entrySource = join(from, entry.name);
         const entryTarget = join(to, entry.name);
-        if (entry.isDirectory()) await copyBrowserAssets(entrySource, entryTarget);
-        else if (entry.isFile() && entry.name.toLowerCase().endsWith(".html"))
-          await writeFile(entryTarget, patchInterfaceSource(await readFile(entrySource, "utf8"), entry.name), "utf8");
+        const entryRelative = `${relative}/${entry.name}`;
+        if (entry.isDirectory()) await copyBrowserAssets(entrySource, entryTarget, entryRelative);
+        else if (entry.isFile() && [".html", ".js"].some((extension) => entry.name.toLowerCase().endsWith(extension)))
+          await writeFile(entryTarget, patchBrowserAssetSource(await readFile(entrySource, "utf8"), entryRelative), "utf8");
         else if (entry.isFile()) await cp(entrySource, entryTarget);
       }
     };
