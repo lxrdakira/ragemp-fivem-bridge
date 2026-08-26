@@ -14,6 +14,7 @@
     "build:neptune": "dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj",
     "audit:neptune:client": "node packages/pack-bridge/audit-neptune-client.mjs",
     "pack:neptune:ui": "node packages/pack-bridge/pack-neptune-ui.mjs",
+    "pack:neptune:ui:portable": "node packages/pack-bridge/pack-neptune-ui.mjs --portable",
     "build:neptune:ui": "pnpm run build && node packages/pack-bridge/pack-neptune-ui.mjs",
     "build:neptune:all": "pnpm run build && dotnet build packages/server-csharp/RageMP.FiveM.Bridge.Host/RageMP.FiveM.Bridge.Host.csproj -c Release && dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj -c Release && node packages/pack-bridge/pack-bridge.mjs --with-csharp --with-neptune && node packages/pack-bridge/pack-neptune-ui.mjs",
     "verify:neptune": "pnpm run audit:neptune:client && pnpm run test:csharp && pnpm run build:neptune:all"

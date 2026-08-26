@@ -38,7 +38,7 @@ namespace RageMP.FiveM.Bridge.Host
             var type = _playerType ?? (_playerType = FindMostDerivedPlayerType());
             var player = (Player?)Activator.CreateInstance(type, handle) ?? new Player(handle);
             player.Name = source.Name;
-            player.Serial = source.Identifiers["license"] ?? string.Empty;
+            player.Serial = ResolveStableIdentifier(source);
             player.SocialClubName = source.Name;
             player.SocialClubId = HashIdentifier(player.Serial);
             player.Address = API.GetPlayerEndpoint(source.Handle) ?? string.Empty;
@@ -51,6 +51,19 @@ namespace RageMP.FiveM.Bridge.Host
             catch { player.ApplyNetworkState(new Vector3(), 0f, 100, 0, source.Ping, dimension); }
             RAGE.Entities.Players.Register(player);
             return player;
+        }
+
+        private static string ResolveStableIdentifier(CitizenFX.Core.Player source)
+        {
+            foreach (var type in new[] { "license", "license2", "fivem" })
+            {
+                var value = source.Identifiers[type];
+                if (string.IsNullOrWhiteSpace(value)) continue;
+                return value.StartsWith(type + ":", StringComparison.OrdinalIgnoreCase)
+                    ? value
+                    : type + ":" + value;
+            }
+            return "source:" + source.Handle;
         }
 
         private static ulong HashIdentifier(string value)

@@ -37,5 +37,6 @@
              Exclude="..\..\..\..\dotnet\resources\NeptuneEvo\bin\**;..\..\..\..\dotnet\resources\NeptuneEvo\obj\**"
              Link="NeptuneEvo\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="Compatibility.cs" />
+    <Compile Include="FiveMIdentityBridge.cs" />
   </ItemGroup>
 </Project>

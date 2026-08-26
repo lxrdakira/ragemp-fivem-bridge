@@ -25,6 +25,10 @@ namespace RageMP.FiveM.Bridge.Host
 
             if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SEVENHILLS_SETTINGS_DIR")))
                 Environment.SetEnvironmentVariable("SEVENHILLS_SETTINGS_DIR", Path.Combine(targetRoot, "settings"));
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SEVENHILLS_FIVEM_IDENTITY_CLAIM")))
+                Environment.SetEnvironmentVariable(
+                    "SEVENHILLS_FIVEM_IDENTITY_CLAIM",
+                    CitizenFX.Core.Native.API.GetConvar("ragemp_fivem_identity_claim", "true"));
 
             Debug.WriteLine($"[ragemp-csharp] runtime configuration ready at {targetRoot}; copied {copied} missing files");
         }

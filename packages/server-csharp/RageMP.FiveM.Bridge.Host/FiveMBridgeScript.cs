@@ -17,6 +17,8 @@ namespace RageMP.FiveM.Bridge.Host
         private readonly EventDispatcher _dispatcher = new EventDispatcher();
         private readonly PlayerFactory _players = new PlayerFactory();
         private bool _initialized;
+        private readonly HashSet<ushort> _connectedPlayers = new HashSet<ushort>();
+        private readonly Dictionary<string, string> _pendingClientReady = new Dictionary<string, string>(StringComparer.Ordinal);
         private string[] _variadicRemoteEvents = Array.Empty<string>();
         private object[] _remoteEventContracts = Array.Empty<object>();
         private readonly Dictionary<int, (float Body, float Engine)> _vehicleHealth = new Dictionary<int, (float Body, float Engine)>();
@@ -29,6 +31,7 @@ namespace RageMP.FiveM.Bridge.Host
         public FiveMBridgeScript()
         {
             BridgeRuntime.Configure(new CitizenFxRuntime(this));
+            _dispatcher.ErrorSink = message => Debug.WriteLine("[ragemp-csharp] " + message);
             Tick += DispatchScheduledActions;
             Tick += InitializeOnFirstTick;
             EventHandlers["playerJoining"] += new Action<CitizenFX.Core.Player>(OnPlayerJoining);
@@ -132,10 +135,11 @@ namespace RageMP.FiveM.Bridge.Host
         private async Task InitializeOnFirstTick()
         {
             if (_initialized) return;
-            _initialized = true;
             Tick -= InitializeOnFirstTick;
 
             RuntimeFileBootstrap.Prepare(API.GetResourcePath(API.GetCurrentResourceName()));
+            if (int.TryParse(API.GetConvar("sv_maxclients", "48"), out var maxPlayers))
+                NAPI.Server.ApplyRuntimeMaxPlayers(maxPlayers);
             DerivedEntityFactory.Configure();
             var scripts = DiscoverScripts().ToArray();
             foreach (var script in scripts) _dispatcher.Register(script);
@@ -171,9 +175,17 @@ namespace RageMP.FiveM.Bridge.Host
 
             await _dispatcher.DispatchServerAsync(Event.ResourceStart);
             Tick += DispatchUpdateTick;
+            _initialized = true;
 
             foreach (var citizenPlayer in Players)
                 await DispatchPlayerConnected(citizenPlayer);
+
+            foreach (var ready in _pendingClientReady.ToArray())
+            {
+                var citizenPlayer = Players.FirstOrDefault(player => player.Handle == ready.Key);
+                if (citizenPlayer != null) SendClientBootstrap(citizenPlayer, ready.Value);
+            }
+            _pendingClientReady.Clear();
         }
 
         private void OnPlayerJoining([FromSource] CitizenFX.Core.Player source)
@@ -184,12 +196,14 @@ namespace RageMP.FiveM.Bridge.Host
 
         private void OnPlayerDropped([FromSource] CitizenFX.Core.Player source, string reason)
         {
+            _pendingClientReady.Remove(source.Handle);
             foreach (var pair in _pendingClientProcedures)
             {
                 if (pair.Value.PlayerHandle != source.Handle || !_pendingClientProcedures.TryRemove(pair.Key, out var pending)) continue;
                 pending.Completion.TrySetException(new InvalidOperationException("Player disconnected during client procedure: " + pending.Name));
             }
             if (!_players.Remove(source, out var player) || player == null) return;
+            _connectedPlayers.Remove(player.Id);
             if (player.Vehicle != null) player.Vehicle.Occupants.Remove(player);
             player.Vehicle = null;
             player.VehicleSeat = -1;
@@ -234,6 +248,16 @@ namespace RageMP.FiveM.Bridge.Host
         }
 
         private void OnPlayerReady([FromSource] CitizenFX.Core.Player source, string resourceName)
+        {
+            if (!_initialized)
+            {
+                _pendingClientReady[source.Handle] = resourceName ?? string.Empty;
+                return;
+            }
+            SendClientBootstrap(source, resourceName);
+        }
+
+        private void SendClientBootstrap(CitizenFX.Core.Player source, string resourceName)
         {
             EntityNetworkSync.SendAll(_players.GetOrCreate(source));
             var playerSnapshot = _players.All
@@ -424,6 +448,7 @@ namespace RageMP.FiveM.Bridge.Host
         private Task DispatchPlayerConnected(CitizenFX.Core.Player source)
         {
             var player = _players.GetOrCreate(source);
+            if (!_connectedPlayers.Add(player.Id)) return Task.CompletedTask;
             BaseScript.TriggerClientEvent("ragemp:player:map", (int)player.Id, (int)player.Id);
             if (NAPI.Server.AutoSpawnOnConnect)
                 NAPI.Player.SpawnPlayer(player, new GTANetworkAPI.Vector3(0f, 0f, 72f));
@@ -432,6 +457,7 @@ namespace RageMP.FiveM.Bridge.Host
 
         private static System.Collections.Generic.IEnumerable<Script> DiscoverScripts()
         {
+            var scripts = new System.Collections.Generic.List<Script>();
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 Type[] types;
@@ -445,9 +471,24 @@ namespace RageMP.FiveM.Bridge.Host
                     Script? script = null;
                     try { script = Activator.CreateInstance(type, true) as Script; }
                     catch (Exception error) { Debug.WriteLine($"[ragemp-csharp] failed to create {type.FullName}: {error}"); }
-                    if (script != null) yield return script;
+                    if (script != null) scripts.Add(script);
                 }
             }
+
+            // NeptuneEvo.Main loads settings, database state, entity factories and
+            // the shared SDK. RAGE:MP creates that entry script before dispatching
+            // ResourceStart to feature scripts. AppDomain assembly/type order is
+            // unspecified on FiveM, so preserve discovery order but promote the
+            // resource entry point to the front of the registration list.
+            foreach (var script in scripts.OrderBy(ResourcePriority)) yield return script;
+        }
+
+        private static int ResourcePriority(Script script)
+        {
+            var name = script.GetType().FullName;
+            if (string.Equals(name, "NeptuneEvo.Main", StringComparison.Ordinal)) return 0;
+            if (string.Equals(name, "NeptuneEvo.FiveM.FiveMIdentityBridge", StringComparison.Ordinal)) return 1;
+            return 2;
         }
 
         private sealed class PendingClientProcedure

@@ -12,7 +12,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Remote event dispatch", TestRemoteEvent),
     ("Static remote event dispatch", TestStaticRemoteEvent),
     ("Duplicate remote event dispatch", TestDuplicateRemoteEvent),
+    ("Remote event failure isolation", TestRemoteEventFailureIsolation),
     ("Server event dispatch", TestServerEvent),
+    ("Server event failure isolation", TestServerEventFailureIsolation),
     ("Command dispatch", TestCommand),
     ("NAPI client event runtime", TestRuntime),
     ("NAPI server settings", TestServerSettings),
@@ -82,6 +84,21 @@ static async Task TestServerEvent()
     Equal(true, script.Started);
 }
 
+static async Task TestServerEventFailureIsolation()
+{
+    var dispatcher = new EventDispatcher();
+    var errors = new List<string>();
+    dispatcher.ErrorSink = errors.Add;
+    dispatcher.Register(new ThrowingServerScript());
+    dispatcher.Register(new FollowingServerScript());
+
+    FollowingServerScript.CallCount = 0;
+    await dispatcher.DispatchServerAsync(Event.ResourceStart);
+
+    Equal(1, FollowingServerScript.CallCount);
+    Equal(1, errors.Count);
+}
+
 static async Task TestStaticRemoteEvent()
 {
     ExampleScript.StaticPlayerId = 0;
@@ -99,6 +116,21 @@ static async Task TestDuplicateRemoteEvent()
     dispatcher.Register(new DuplicateScriptTwo());
     await dispatcher.DispatchRemoteAsync("shared.action", NewPlayer(34), 2);
     Equal(4, DuplicateScript.CallCount);
+}
+
+static async Task TestRemoteEventFailureIsolation()
+{
+    var dispatcher = new EventDispatcher();
+    var errors = new List<string>();
+    dispatcher.ErrorSink = errors.Add;
+    dispatcher.Register(new ThrowingRemoteScript());
+    dispatcher.Register(new FollowingRemoteScript());
+
+    FollowingRemoteScript.CallCount = 0;
+    await dispatcher.DispatchRemoteAsync("isolated.remote", NewPlayer(35), 4);
+
+    Equal(4, FollowingRemoteScript.CallCount);
+    Equal(1, errors.Count);
 }
 
 static async Task TestCommand()
@@ -134,6 +166,7 @@ static Task TestServerSettings()
     NAPI.Server.SetGlobalDefaultCommandMessages(false);
     NAPI.Server.SetGlobalServerChat(false);
     NAPI.Server.SetServerName("Neptune FiveM");
+    NAPI.Server.ApplyRuntimeMaxPlayers(64);
 
     Equal(false, NAPI.Server.AutoRespawnAfterDeath);
     Equal(false, NAPI.Server.AutoSpawnOnConnect);
@@ -141,6 +174,7 @@ static Task TestServerSettings()
     Equal(false, NAPI.Server.GlobalDefaultCommandMessages);
     Equal(false, NAPI.Server.GlobalServerChat);
     Equal("Neptune FiveM", NAPI.Server.ServerName);
+    Equal(64, NAPI.Server.GetMaxPlayers());
     Equal("ragemp:setAutoRespawn", runtime.BroadcastEvents.Single().EventName);
     Equal(false, runtime.BroadcastEvents.Single().Arguments[0]);
     return Task.CompletedTask;
@@ -394,6 +428,32 @@ sealed class DuplicateScriptTwo : Script
 {
     [RemoteEvent("shared.action")]
     private void Handle(Player player, int value) => DuplicateScript.CallCount += value;
+}
+
+sealed class ThrowingRemoteScript : Script
+{
+    [RemoteEvent("isolated.remote")]
+    private void Handle(Player player, int value) => throw new InvalidOperationException("expected test failure");
+}
+
+sealed class FollowingRemoteScript : Script
+{
+    public static int CallCount { get; set; }
+    [RemoteEvent("isolated.remote")]
+    private void Handle(Player player, int value) => CallCount += value;
+}
+
+sealed class ThrowingServerScript : Script
+{
+    [ServerEvent(Event.ResourceStart)]
+    private void Start() => throw new InvalidOperationException("expected test failure");
+}
+
+sealed class FollowingServerScript : Script
+{
+    public static int CallCount { get; set; }
+    [ServerEvent(Event.ResourceStart)]
+    private void Start() => CallCount++;
 }
 
 sealed class EntityRefScript : Script

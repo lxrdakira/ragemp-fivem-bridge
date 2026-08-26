@@ -1,37 +1,79 @@
-# C# compatibility bridge
+# NeptuneEvo C# compatibility bridge
 
-The upstream FiveM bridge supports JavaScript gamemodes. NeptuneEvo uses the
-RAGE Multiplayer `GTANetworkAPI` C# surface, so this repository also contains a
-source-compatible C# facade.
+The port compiles the complete NeptuneEvo server source against a FiveM-backed
+`GTANetworkAPI` compatibility layer. The original files under
+`dotnet/resources` remain linked read-only; FiveM-specific behavior lives in
+this repository.
 
-The facade is split into two layers:
+## Implemented runtime path
 
-1. `RageMP.FiveM.Bridge.Core` defines RAGE-compatible types and discovers
-   `[RemoteEvent]`, `[ServerEvent]`, and `[Command]` handlers.
-2. A CitizenFX host (next milestone) implements `IBridgeRuntime` and translates
-   calls to FiveM events, natives, State Bags, and routing buckets.
+- CitizenFX C# host and main-thread `NAPI.Task` scheduler;
+- `[RemoteEvent]`, `[ServerEvent]`, and `[Command]` discovery/dispatch;
+- isolated multicast handlers so one feature cannot abort the rest;
+- player lifecycle, identity, health, armour, cover, weapon and vehicle seat state;
+- server vehicles, objects, peds, controller ownership and entity recreation;
+- markers, labels, blips, checkpoints, colshapes and routing buckets;
+- shared data/state bags, client events and client procedures;
+- weather, time, IPL and world-prop state replay for joining clients;
+- original JavaScript client plus original Svelte/legacy CEF interfaces;
+- automatic runtime settings/bootstrap and a legacy-account FiveM identity bridge.
 
-Keeping CitizenFX out of the core makes the compatibility contract testable
-without FXServer or GTA V. It also lets us compare the facade against the
-original NeptuneEvo `Bootstrapper.dll` by reflection.
-
-## Status
-
-- attributes and script base class: implemented;
-- remote/server event discovery and dispatch: implemented;
-- entity identity and local/shared data: implemented;
-- client event dispatch abstraction: implemented;
-- `NAPI.Task` and `NAPI.Util`: initial implementation;
-- CitizenFX runtime host: pending;
-- full `NAPI.*` surface: incremental, driven by NeptuneEvo compilation.
-
-`packages/server-csharp/NeptuneEvo.Port` references the original source tree and
-is the compile gate for gradual migration. It currently includes the real
-`NeptuneEvo/Main.cs` entry type.
-
-Build a ready-to-copy resource containing the JavaScript bridge, C# host, and
-current NeptuneEvo migration assembly with:
+The complete compile/audit gate is:
 
 ```powershell
-npx pnpm@10.28.2 run build:resource:csharp
+pnpm run verify:neptune
 ```
+
+It audits the original client API calls, runs the C# contract suite, builds the
+bridge/client/CEF, compiles the complete NeptuneEvo assembly, and repacks the
+development resources. This is a static gate; an end-to-end gameplay claim
+still requires an allowed FXServer + MySQL test run.
+
+## Resource packaging
+
+Build the C# server resource and the fast local UI overlay:
+
+```powershell
+pnpm run build:neptune:all
+```
+
+Outputs:
+
+- `dist/ragemp-fivem-bridge`
+- `dist/neptuneevo-ui-dev`
+
+The development UI uses directory junctions for the roughly 10 GB original
+asset tree. To create a self-contained UI resource that can be copied to a
+different machine, run:
+
+```powershell
+pnpm run pack:neptune:ui:portable
+```
+
+This creates `dist/neptuneevo-ui` and can take substantial time and disk space.
+
+Start order in `server.cfg`:
+
+```cfg
+ensure ragemp-fivem-bridge
+ensure neptuneevo-ui
+```
+
+Use `neptuneevo-ui-dev` instead of `neptuneevo-ui` for the local overlay.
+
+## Legacy account identity
+
+FiveM exposes a stable `license` identifier but not the legacy RAGE:MP Social
+Club name used by NeptuneEvo account ownership checks. The port creates the
+`fivem_identities` table on startup. The first successful credential login may
+claim an unbound legacy account; the unique identifier/account constraints then
+enforce the binding on later connections.
+
+Automatic first-login claiming is enabled by default. It can be disabled before
+resource start:
+
+```cfg
+set ragemp_fivem_identity_claim false
+```
+
+The equivalent manual schema is available in `sql/fivem_identity_bridge.sql`.

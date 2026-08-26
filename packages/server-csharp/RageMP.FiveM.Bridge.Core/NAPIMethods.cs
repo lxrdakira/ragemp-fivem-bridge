@@ -130,6 +130,7 @@ namespace GTANetworkAPI
 
     public sealed class ServerMethods
     {
+        private int _maxPlayers = 1024;
         public bool AutoRespawnAfterDeath { get; private set; } = true;
         public bool AutoSpawnOnConnect { get; private set; } = true;
         public string CommandErrorMessage { get; private set; } = "Command not found.";
@@ -137,7 +138,8 @@ namespace GTANetworkAPI
         public bool GlobalServerChat { get; private set; } = true;
         public string ServerName { get; private set; } = string.Empty;
 
-        public int GetMaxPlayers() => 1024;
+        public int GetMaxPlayers() => _maxPlayers;
+        public void ApplyRuntimeMaxPlayers(int value) => _maxPlayers = Math.Max(1, value);
         public void SetAutoRespawnAfterDeath(bool value)
         {
             AutoRespawnAfterDeath = value;

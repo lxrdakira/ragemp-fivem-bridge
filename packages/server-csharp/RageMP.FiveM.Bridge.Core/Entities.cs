@@ -165,6 +165,13 @@ namespace GTANetworkAPI
         public string Address { get; internal set; } = string.Empty;
         public bool IsInCover { get; internal set; }
 
+        public void ApplyPlatformIdentity(string socialClubName, ulong? socialClubId = null, string? serial = null)
+        {
+            SocialClubName = socialClubName ?? string.Empty;
+            if (socialClubId.HasValue) SocialClubId = socialClubId.Value;
+            if (serial != null) Serial = serial;
+        }
+
         public void ApplyNetworkState(Vector3 position, float heading, int health, int armor, int ping, uint? dimension = null, bool? isInCover = null)
         {
             base.Position = position;

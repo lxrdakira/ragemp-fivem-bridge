@@ -8,7 +8,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const bridgeRoot = resolve(here, "../..");
 const sourceRoot = resolve(bridgeRoot, "..");
 const clientPackages = join(sourceRoot, "client_packages");
-const outDir = resolve(bridgeRoot, "dist/neptuneevo-ui-dev");
+const portable = process.argv.includes("--portable");
+const resourceName = portable ? "neptuneevo-ui" : "neptuneevo-ui-dev";
+const outDir = resolve(bridgeRoot, `dist/${resourceName}`);
 const bridgeCef = resolve(bridgeRoot, "packages/cef/dist/index.js");
 
 for (const required of [
@@ -72,6 +74,7 @@ async function createInterfaceOverlay(sourceRoot, targetRoot, relativeDir = "") 
         path.startsWith(`${relativePath}/`),
       );
       if (containsPatch) await createInterfaceOverlay(source, target, relativePath);
+      else if (portable) await cp(source, target, { recursive: true });
       else await symlink(source, target, process.platform === "win32" ? "junction" : "dir");
       continue;
     }
@@ -93,15 +96,16 @@ const assetDirs = ["cef", "soundapi", "sounds", "game", "game_resources"];
 for (const name of assetDirs) {
   const source = join(clientPackages, name);
   if (existsSync(source)) {
-    await symlink(source, join(outDir, name), process.platform === "win32" ? "junction" : "dir");
+    if (portable) await cp(source, join(outDir, name), { recursive: true });
+    else await symlink(source, join(outDir, name), process.platform === "win32" ? "junction" : "dir");
   }
 }
 
 const manifest = `fx_version 'cerulean'
 game 'gta5'
 
-name 'neptuneevo-ui-dev'
-description 'NeptuneEvo original client and CEF smoke resource'
+name '${resourceName}'
+description 'NeptuneEvo original client and CEF resource for FiveM'
 version '0.1.0'
 
 dependency 'ragemp-fivem-bridge'
@@ -109,8 +113,7 @@ dependency 'ragemp-fivem-bridge'
 client_scripts {
     '@ragemp-fivem-bridge/client.js',
     'rage-rpc.min.js',
-    'main.js',
-    'client/dev-bootstrap.js'
+    'main.js'${portable ? "" : ",\n    'client/dev-bootstrap.js'"}
 }
 
 ui_page 'ui/host.html'
@@ -128,5 +131,5 @@ files {
 `;
 
 await writeFile(join(outDir, "fxmanifest.lua"), manifest, "utf8");
-console.log(`[neptune-ui] Development resource ready: ${outDir}`);
-console.log("[neptune-ui] Start ragemp-fivem-bridge first, then neptuneevo-ui-dev; use /neptuneui in game.");
+console.log(`[neptune-ui] ${portable ? "Portable" : "Development"} resource ready: ${outDir}`);
+console.log(`[neptune-ui] Start ragemp-fivem-bridge first, then ${resourceName}.${portable ? "" : " Use /neptuneui for the standalone UI smoke view."}`);

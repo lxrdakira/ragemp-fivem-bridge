@@ -15,6 +15,8 @@ namespace RageMP.FiveM.Bridge
         private readonly Dictionary<Event, List<Handler>> _serverEvents = new Dictionary<Event, List<Handler>>();
         private readonly Dictionary<string, CommandHandler> _commands = new Dictionary<string, CommandHandler>(StringComparer.OrdinalIgnoreCase);
 
+        public Action<string>? ErrorSink { get; set; }
+
         public int RemoteEventCount => _remoteEvents.Count;
         public int ServerEventCount => _serverEvents.Sum(pair => pair.Value.Count);
         public int CommandCount => _commands.Count;
@@ -86,13 +88,16 @@ namespace RageMP.FiveM.Bridge
         {
             if (!_remoteEvents.TryGetValue(eventName, out var handlers))
                 throw new KeyNotFoundException("Remote event is not registered: " + eventName);
-            return DispatchRemoteHandlersAsync(handlers, player, arguments);
+            return DispatchRemoteHandlersAsync(eventName, handlers, player, arguments);
         }
 
-        private static async Task DispatchRemoteHandlersAsync(IEnumerable<Handler> handlers, Player player, object?[] arguments)
+        private async Task DispatchRemoteHandlersAsync(string eventName, IEnumerable<Handler> handlers, Player player, object?[] arguments)
         {
             foreach (var handler in handlers)
-                await handler.InvokeAsync(PrependPlayerIfRequired(handler.Method, player, arguments));
+            {
+                try { await handler.InvokeAsync(PrependPlayerIfRequired(handler.Method, player, arguments)); }
+                catch (Exception error) { ReportHandlerError("remote " + eventName, handler.Method, error); }
+            }
         }
 
         private static void RegisterRemoteHandler(string name, List<Handler> handlers, Handler candidate)
@@ -114,7 +119,17 @@ namespace RageMP.FiveM.Bridge
         public async Task DispatchServerAsync(Event eventId, params object?[] arguments)
         {
             if (!_serverEvents.TryGetValue(eventId, out var handlers)) return;
-            foreach (var handler in handlers) await handler.InvokeAsync(arguments);
+            foreach (var handler in handlers)
+            {
+                try { await handler.InvokeAsync(arguments); }
+                catch (Exception error) { ReportHandlerError("server " + eventId, handler.Method, error); }
+            }
+        }
+
+        private void ReportHandlerError(string eventName, MethodInfo method, Exception error)
+        {
+            var actual = error is TargetInvocationException && error.InnerException != null ? error.InnerException : error;
+            ErrorSink?.Invoke($"{eventName} handler {method.DeclaringType?.FullName}.{method.Name} failed: {actual}");
         }
 
         private static object?[] PrependPlayerIfRequired(MethodInfo method, Player player, object?[] arguments)

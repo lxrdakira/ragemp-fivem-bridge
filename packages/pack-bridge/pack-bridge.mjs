@@ -41,6 +41,10 @@ version '1.0.0'
 
 ragemp_bridge 'library'
 
+-- NeptuneEvo: allow a correct login/password to claim an unbound legacy
+-- account for the player's stable FiveM license. Override in server.cfg with:
+-- set ragemp_fivem_identity_claim false
+
 -- Optional plugins (disabled by default). Uncomment a line to enable:
 -- bridge_world_vehicles 'yes' -- spawn server vehicles anywhere on the map (CreateVehicleServerSetter + retry queue)
 
