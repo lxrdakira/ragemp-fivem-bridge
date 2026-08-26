@@ -63,6 +63,63 @@ interface PayloadData {
   result?: unknown;
   error?: string;
   procResult?: boolean;
+  name?: string;
+  data?: string;
+}
+
+const screenshotUrls = new Map<string, string>();
+let screenshotProtocolInstalled = false;
+
+function screenshotName(url: unknown): string | null {
+  const match = /^https?:\/\/screenshots\/([^?#]+)/i.exec(String(url ?? ""));
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]).replace(/^.*[\\/]/, ""); }
+  catch (_) { return match[1].replace(/^.*[\\/]/, ""); }
+}
+
+function storeScreenshot(name: string, data: string): void {
+  if (!name || !data || typeof URL === "undefined" || typeof Blob === "undefined") return;
+  const match = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/i.exec(data);
+  if (!match) return;
+  try {
+    const raw = match[2] ? atob(match[3]) : decodeURIComponent(match[3]);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const next = URL.createObjectURL(new Blob([bytes], { type: match[1] || "image/jpeg" }));
+    const safeName = name.replace(/^.*[\\/]/, "");
+    const previous = screenshotUrls.get(safeName);
+    if (previous) URL.revokeObjectURL(previous);
+    screenshotUrls.set(safeName, next);
+  } catch (error) {
+    log("failed to store screenshot", name, String(error));
+  }
+}
+
+function resolveScreenshotUrl(value: unknown): unknown {
+  const name = screenshotName(value);
+  return name ? (screenshotUrls.get(name) ?? value) : value;
+}
+
+function installScreenshotProtocol(): void {
+  if (screenshotProtocolInstalled || typeof window === "undefined") return;
+  screenshotProtocolInstalled = true;
+
+  if (typeof XMLHttpRequest !== "undefined") {
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method: string, url: string | URL, ...rest: any[]): void {
+      return (originalOpen as any).call(this, method, resolveScreenshotUrl(url), ...rest);
+    } as typeof XMLHttpRequest.prototype.open;
+  }
+
+  if (typeof window.fetch === "function") {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (typeof input === "string" || input instanceof URL) {
+        return originalFetch(resolveScreenshotUrl(input) as RequestInfo | URL, init);
+      }
+      return originalFetch(input, init);
+    }) as typeof window.fetch;
+  }
 }
 
 export function createRuntime(): {
@@ -72,6 +129,7 @@ export function createRuntime(): {
   setSelfId: (id: string) => void;
   getSelfId: () => string;
 } {
+  installScreenshotProtocol();
   let selfId = "host";
   const getSelfId = (): string => selfId;
 
@@ -106,6 +164,11 @@ export function createRuntime(): {
 
   function handlePayload(data: PayloadData): void {
     if (!data || typeof data !== "object") return;
+
+    if (data.type === "__ragemp:screenshot:store" && data.name && data.data) {
+      storeScreenshot(data.name, data.data);
+      return;
+    }
 
     if (data.type === "__ragemp:exec" && data.code) {
       try {

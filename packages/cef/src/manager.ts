@@ -12,6 +12,8 @@ export function startManager(): void {
   const frames: Map<string, FrameEntry> = new Map();
   const pointerState: Map<string, boolean> = new Map();
   const orderState: Map<string, number> = new Map();
+  const screenshots: Map<string, string> = new Map();
+  const pendingScreenshotBrowsers: Map<string, Array<{ browserId: string; url: string }>> = new Map();
   const HOST_RESOURCE = resourceName();
   let focusedBrowserId: string | null = null;
 
@@ -170,6 +172,22 @@ export function startManager(): void {
       return;
     }
 
+    const screenshotMatch = /^https?:\/\/screenshots\/([^?#]+)/i.exec(url);
+    if (screenshotMatch) {
+      let screenshotFile = screenshotMatch[1];
+      try { screenshotFile = decodeURIComponent(screenshotFile); } catch (_) {}
+      screenshotFile = screenshotFile.replace(/^.*[\\/]/, "");
+      if (!screenshots.has(screenshotFile)) {
+        const waiters = pendingScreenshotBrowsers.get(screenshotFile) ?? [];
+        waiters.push({ browserId, url });
+        pendingScreenshotBrowsers.set(screenshotFile, waiters);
+        return;
+      }
+      // The legacy browser is used only as a readiness signal. The actual
+      // image is exposed through the emulated http://screenshots URL below.
+      url = "data:text/html,%3C!doctype%20html%3E%3Ctitle%3Escreenshot%3C/title%3E";
+    }
+
     const iframe = document.createElement("iframe");
     iframe.dataset.browserId = String(browserId);
     iframe.setAttribute("allowtransparency", "true");
@@ -178,6 +196,9 @@ export function startManager(): void {
       "position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;border:0;margin:0;padding:0;background:transparent;pointer-events:auto;display:block;";
 
     const entry: FrameEntry = { iframe, ready: false, queue: [] };
+    for (const [name, data] of screenshots) {
+      entry.queue.push({ type: "__ragemp:screenshot:store", name, data });
+    }
 
     iframe.addEventListener("load", () => {
       log("iframe loaded", browserId);
@@ -371,6 +392,20 @@ export function startManager(): void {
     }
 
     switch (data.type) {
+      case "__ragemp:screenshot:store": {
+        const name = String(data.name ?? "").replace(/^.*[\\/]/, "");
+        const screenshotData = String(data.data ?? "");
+        if (!name || !screenshotData) return;
+        screenshots.set(name, screenshotData);
+        handlePayload({ type: "__ragemp:screenshot:store", name, data: screenshotData });
+        for (const browserId of frames.keys()) {
+          forward(browserId, { type: "__ragemp:screenshot:store", name, data: screenshotData });
+        }
+        const waiters = pendingScreenshotBrowsers.get(name) ?? [];
+        pendingScreenshotBrowsers.delete(name);
+        for (const waiter of waiters) createBrowser(waiter.browserId, waiter.url);
+        return;
+      }
       case "__ragemp:browser:create":
         createBrowser(data.browserId as string, data.url as string);
         return;

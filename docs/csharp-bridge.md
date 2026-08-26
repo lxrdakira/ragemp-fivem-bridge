@@ -2,8 +2,9 @@
 
 The port compiles the complete NeptuneEvo server source against a FiveM-backed
 `GTANetworkAPI` compatibility layer. The original files under
-`dotnet/resources` remain linked read-only; FiveM-specific behavior lives in
-this repository.
+`dotnet/resources` remain read-only. At build time they are copied into `obj`,
+where the port mechanically replaces legacy thread-name guards with FiveM-safe
+main-thread checks; all FiveM-specific behavior lives in this repository.
 
 ## Implemented runtime path
 
@@ -60,6 +61,19 @@ ensure neptuneevo-ui
 ```
 
 Use `neptuneevo-ui-dev` instead of `neptuneevo-ui` for the local overlay.
+
+Phone-camera uploads and the legacy asset screenshot commands require the
+official `screenshot-basic` FiveM resource to be started before the UI:
+
+```cfg
+ensure screenshot-basic
+ensure ragemp-fivem-bridge
+ensure neptuneevo-ui
+```
+
+The bridge keeps the original `mp.gui.takeScreenshot(name, ...)` and
+`http://screenshots/name` contract in memory, so the unchanged CEF code can
+continue reading and uploading captured images.
 
 ## Legacy account identity
 

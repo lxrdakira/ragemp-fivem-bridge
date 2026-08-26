@@ -19,24 +19,34 @@ export class GuiMp {
     SendNuiMessage(JSON.stringify({ type: "execute", code }));
   }
 
-  takeScreenshot(callback: ((data: string | null) => void) | null, type: number, quality?: number): void {
+  takeScreenshot(target: string | ((data: string | null) => void) | null, type: number, quality?: number, _compression?: number): void {
     const encodings = ["jpg", "png", "webp"];
     const encoding = encodings[type] ?? "jpg";
     const q = typeof quality === "number" ? Math.max(0, Math.min(1, quality / 100)) : 0.85;
     const hasScreenshotBasic = typeof GetResourceState === "function" && GetResourceState("screenshot-basic") === "started";
     if (!hasScreenshotBasic) {
       console.warn("[bridge] mp.gui.takeScreenshot requires the 'screenshot-basic' FiveM resource (no pure-JS screenshot API exists). Install it from https://github.com/citizenfx/screenshot-basic and add 'ensure screenshot-basic' to server.cfg.");
-      if (callback) callback(null);
+      if (typeof target === "function") target(null);
       return;
     }
     try {
       global.exports["screenshot-basic"].requestScreenshot(
         { encoding, quality: q },
-        (data: string | null) => { if (callback) callback(data); }
+        (data: string | null) => {
+          if (typeof target === "function") {
+            target(data);
+          } else if (typeof target === "string" && target.length > 0 && data && typeof SendNuiMessage === "function") {
+            SendNuiMessage(JSON.stringify({
+              type: "__ragemp:screenshot:store",
+              name: target.replace(/^.*[\\/]/, ""),
+              data,
+            }));
+          }
+        }
       );
     } catch (err) {
       console.warn("[bridge] screenshot-basic call failed:", err);
-      if (callback) callback(null);
+      if (typeof target === "function") target(null);
     }
   }
 }
