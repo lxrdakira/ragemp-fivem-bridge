@@ -21,6 +21,7 @@ export interface HeadlessBrowserState {
   textureDict: string;
   textureName: string;
   readyTimer: ReturnType<typeof setInterval> | null;
+  pendingPayloads: Record<string, unknown>[];
 }
 
 export const BrowserInternals = defineInternals<BrowserInternalsRec>();
@@ -43,6 +44,10 @@ export function initBrowserInternals(browser: BrowserMp, url: string): BrowserIn
 export function browserDomReady(browser: BrowserMp): void {
   const rec = BrowserInternals.get(browser);
   rec.domReady = true;
+  if (rec.headless?.pendingPayloads.length) {
+    for (const payload of rec.headless.pendingPayloads.splice(0))
+      sendHeadlessPayload(browser, payload);
+  }
   if (rec.cachedExec.length === 0) return;
   for (const code of rec.cachedExec.splice(0)) browser.execute(code);
 }
@@ -65,8 +70,14 @@ export function setHeadlessBrowser(browser: BrowserMp, state: HeadlessBrowserSta
 }
 
 export function sendHeadlessPayload(browser: BrowserMp, payload: Record<string, unknown>): boolean {
-  const state = BrowserInternals.get(browser).headless;
+  const rec = BrowserInternals.get(browser);
+  const state = rec.headless;
   if (!state || !state.dui) return false;
+  if (!rec.domReady && payload.type !== "__ragemp:assignId") {
+    if (state.pendingPayloads.length >= 4096) state.pendingPayloads.shift();
+    state.pendingPayloads.push(payload);
+    return true;
+  }
   SendDuiMessage(state.dui, JSON.stringify({ __ragempForward: true, inner: payload }));
   return true;
 }
@@ -114,6 +125,7 @@ export function destroyHeadlessBrowser(browser: BrowserMp): boolean {
   if (state.readyTimer !== null) clearInterval(state.readyTimer);
   if (state.dui) DestroyDui(state.dui);
   state.readyTimer = null;
+  state.pendingPayloads.length = 0;
   state.dui = 0;
   return true;
 }

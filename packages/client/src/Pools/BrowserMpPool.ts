@@ -63,6 +63,7 @@ export class BrowserMpPool extends Pool<BrowserMp> {
       textureDict,
       textureName,
       readyTimer: null,
+      pendingPayloads: [],
     });
     beginHeadlessReadyHandshake(browser);
 
