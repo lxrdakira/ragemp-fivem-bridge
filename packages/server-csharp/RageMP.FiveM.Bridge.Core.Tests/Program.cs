@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using GTANetworkAPI;
+using Newtonsoft.Json;
 using RageMP.FiveM.Bridge;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -45,6 +46,9 @@ static Task TestVector()
     Equal(5f, vector.Length());
     Equal(new Vector3(4, 5, 1), vector.Add(new Vector3(1, 1, 1)));
     Equal(25f, vector.DistanceToSquared(Vector3Zero()));
+    var json = JsonConvert.SerializeObject(vector);
+    Equal(false, json.Contains("Normalized"));
+    Equal(vector, JsonConvert.DeserializeObject<Vector3>(json));
     return Task.CompletedTask;
 }
 

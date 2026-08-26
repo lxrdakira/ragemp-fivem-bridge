@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 
 namespace System
 {
@@ -124,6 +126,28 @@ namespace NeptuneEvo
 
 namespace NeptuneEvo.PortCompatibility
 {
+    internal static class FiveMDatabaseCompatibility
+    {
+        internal static void SkipLegacyBackup()
+        {
+            // MySqlBackup.NET depends on MySql.Data's desktop configuration
+            // subsystem, which is unavailable in the FiveM/BestMP Mono host.
+            // Runtime queries use MySqlConnector; backups stay an external
+            // server-administration responsibility in this port.
+        }
+    }
+
+    internal static class RuntimeAssemblyInfo
+    {
+        internal static DateTime GetCompileDate(Assembly assembly)
+        {
+            var location = assembly?.Location;
+            return !string.IsNullOrWhiteSpace(location) && File.Exists(location)
+                ? File.GetLastWriteTime(location)
+                : DateTime.UtcNow;
+        }
+    }
+
     public static class FiveMThreadGuard
     {
         private static int _mainThreadId = -1;

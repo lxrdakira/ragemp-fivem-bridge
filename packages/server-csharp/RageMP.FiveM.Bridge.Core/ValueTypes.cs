@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Newtonsoft.Json;
 
 namespace GTANetworkAPI
 {
@@ -38,6 +39,7 @@ namespace GTANetworkAPI
         public float Y { get; set; }
         public float Z { get; set; }
         public float W { get; set; }
+        [JsonIgnore]
         public Quaternion Normalized
         {
             get
@@ -115,6 +117,7 @@ namespace GTANetworkAPI
         public float X { get; set; }
         public float Y { get; set; }
         public float Z { get; set; }
+        [JsonIgnore]
         public Vector3 Normalized { get { var copy = Copy(); copy.Normalize(); return copy; } }
 
         public static Vector3 operator +(Vector3 left, Vector3 right) => left.Add(right);

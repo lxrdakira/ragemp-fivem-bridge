@@ -15,6 +15,9 @@ let copied = 0;
 let threadChecks = 0;
 let startupCaptures = 0;
 let runtimePathAdapters = 0;
+let assemblyLocationAdapters = 0;
+let databaseProviderAdapters = 0;
+let databaseBackupAdapters = 0;
 
 function portSource(source) {
   source = source.replace(
@@ -42,6 +45,21 @@ function portSource(source) {
       return 'Path.Combine(Directory.GetCurrentDirectory(), "audio_cache")';
     },
   );
+  source = source.replace(
+    /new FileInfo\(Assembly\.GetExecutingAssembly\(\)\.Location\)\.LastWriteTime/g,
+    () => {
+      assemblyLocationAdapters++;
+      return "NeptuneEvo.PortCompatibility.RuntimeAssemblyInfo.GetCompileDate(Assembly.GetExecutingAssembly())";
+    },
+  );
+  source = source.replace(/"MySql\.Data\.MySqlClient"/g, () => {
+    databaseProviderAdapters++;
+    return '"MySqlConnector"';
+  });
+  source = source.replace("Timers.StartOnceTask(0, BackupSql.Backup);", () => {
+    databaseBackupAdapters++;
+    return "NeptuneEvo.PortCompatibility.FiveMDatabaseCompatibility.SkipLegacyBackup();";
+  });
   return source;
 }
 
@@ -66,4 +84,7 @@ copyDirectory();
 if (startupCaptures !== 1) throw new Error(`expected one Neptune main-thread capture, found ${startupCaptures}`);
 if (threadChecks === 0) throw new Error("no legacy Neptune main-thread checks were adapted");
 if (runtimePathAdapters !== 2) throw new Error(`expected two Neptune audio-cache path adapters, found ${runtimePathAdapters}`);
-process.stdout.write(`[neptune-port] generated ${copied} C# sources; adapted ${threadChecks} main-thread checks and ${runtimePathAdapters} runtime paths\n`);
+if (assemblyLocationAdapters !== 1) throw new Error(`expected one Neptune assembly-location adapter, found ${assemblyLocationAdapters}`);
+if (databaseProviderAdapters !== 3) throw new Error(`expected three Neptune database-provider adapters, found ${databaseProviderAdapters}`);
+if (databaseBackupAdapters !== 1) throw new Error(`expected one Neptune database-backup adapter, found ${databaseBackupAdapters}`);
+process.stdout.write(`[neptune-port] generated ${copied} C# sources; adapted ${threadChecks} main-thread checks, ${runtimePathAdapters} runtime paths, ${assemblyLocationAdapters} assembly path, ${databaseProviderAdapters} database providers and ${databaseBackupAdapters} backup hook\n`);
