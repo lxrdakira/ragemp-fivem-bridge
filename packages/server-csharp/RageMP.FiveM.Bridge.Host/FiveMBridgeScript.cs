@@ -273,6 +273,11 @@ namespace RageMP.FiveM.Bridge.Host
                 BaseScript.TriggerClientEvent(source, "ragemp:requestIpl", ipl);
             foreach (var deletion in NAPI.World.GetWorldPropDeletions())
                 BaseScript.TriggerClientEvent(source, "ragemp:deleteWorldProp", deletion.Model, deletion.Position.X, deletion.Position.Y, deletion.Position.Z, deletion.Radius);
+            // The consuming client resource waits for this acknowledgement to
+            // raise RAGE:MP's local playerReady event. The standalone JS host
+            // already mirrors it; the C# host must do the same after contracts
+            // and entity snapshots have been delivered.
+            BaseScript.TriggerClientEvent(source, "ragemp:playerReady", resourceName ?? string.Empty);
         }
 
         private void OnPlayerState([FromSource] CitizenFX.Core.Player source, float x, float y, float z, float heading, int health, int armor, bool isInCover, int vehicleNetworkId, int nativeSeat)
