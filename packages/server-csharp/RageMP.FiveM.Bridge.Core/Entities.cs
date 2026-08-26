@@ -20,7 +20,7 @@ namespace GTANetworkAPI
         public ushort Id => Handle.Value;
         public Vector3 Position { get; set; } = new Vector3();
         public Vector3 Rotation { get; set; } = new Vector3();
-        public float Heading => Rotation.Z;
+        public float Heading { get => Rotation.Z; set => Rotation = new Vector3(Rotation.X, Rotation.Y, value); }
         public bool IsNull => Handle.IsNull;
         public bool Exists => !IsNull && IsInstanceAlive;
         public bool IsInstanceAlive { get; set; } = true;
@@ -28,6 +28,7 @@ namespace GTANetworkAPI
         public int Transparency { get; set; } = 255;
         public uint Dimension { get; set; }
         public uint Model { get; protected set; }
+        public void SetModelInternal(uint model) => Model = model;
 
         public bool HasData(string key) => _data.ContainsKey(key);
         public T? GetData<T>(string key) => _data.TryGetValue(key, out var value) ? ConvertValue<T>(value) : default;
@@ -58,6 +59,7 @@ namespace GTANetworkAPI
         public override int GetHashCode() => Handle.GetHashCode();
         public static bool operator ==(Entity? left, Entity? right) => Equals(left, right);
         public static bool operator !=(Entity? left, Entity? right) => !Equals(left, right);
+        public static implicit operator NetHandle(Entity entity) => entity.Handle;
 
         private static T? ConvertValue<T>(object? value)
         {
@@ -81,6 +83,9 @@ namespace GTANetworkAPI
         public bool IsInVehicle => Vehicle != null;
         public Vehicle? Vehicle { get; internal set; }
         public int VehicleSeat { get; internal set; } = -1;
+        public WeaponHash CurrentWeapon { get; internal set; } = WeaponHash.Unarmed;
+        public string Address { get; internal set; } = string.Empty;
+        public bool IsInCover { get; internal set; }
 
         public void TriggerEvent(string eventName, params object[] arguments) =>
             BridgeRuntime.Current.TriggerClientEvent(this, eventName, arguments);
@@ -90,6 +95,22 @@ namespace GTANetworkAPI
         public void SendChatMessage(string sender, string message) => SendChatMessage(sender + ": " + message);
         public void Kick(string reason) => BridgeRuntime.Current.Kick(this, reason);
         public void Kick() => Kick(string.Empty);
+        public void Ban(string reason) => Kick(reason);
+        public void Ban() => Kick("Banned");
+        public void SendNotification(string message, bool flashing = false) => TriggerEvent("ragemp:notify", message);
+        public void SetIntoVehicle(NetHandle vehicle, int seat) => TriggerEvent("ragemp:putIntoVehicle", vehicle.Value, seat);
+        public void WarpOutOfVehicle() => TriggerEvent("ragemp:removeFromVehicle");
+        public void SetSkin(PedHash model) => SetSkin((uint)model);
+        public void SetSkin(uint model) { SetModelInternal(model); TriggerEvent("ragemp:setModel", model); }
+        public void PlayAnimation(string dictionary, string name, int flags) => TriggerEvent("ragemp:playAnimation", dictionary, name, 8f, flags);
+        public void StopAnimation() => TriggerEvent("ragemp:stopAnimation");
+        public void EnableVoiceTo(Player target) => TriggerEvent("ragemp:enableVoiceTo", target.Id);
+        public void DisableVoiceTo(Player target) => TriggerEvent("ragemp:disableVoiceTo", target.Id);
+        public void SetDecoration(Decoration decoration) => TriggerEvent("ragemp:setDecoration", decoration.Collection, decoration.Overlay);
+        public void SetDecoration(Decoration[] decorations) { foreach (var decoration in decorations) SetDecoration(decoration); }
+        public void RemoveDecoration(Decoration decoration) => TriggerEvent("ragemp:removeDecoration", decoration.Collection, decoration.Overlay);
+        public void RemoveAllWeapons() => TriggerEvent("ragemp:removeAllWeapons");
+        public void Eval(string code) => TriggerEvent("ragemp:eval", code);
     }
 
     public class Vehicle : Entity
@@ -103,6 +124,14 @@ namespace GTANetworkAPI
         public int SecondaryColor { get; set; }
         public bool Siren { get; internal set; }
         public List<Entity> Occupants { get; } = new List<Entity>();
+        public Color CustomPrimaryColor { get; set; } = new Color(0, 0, 0);
+        public Color CustomSecondaryColor { get; set; } = new Color(0, 0, 0);
+        public int NumberPlateStyle { get; set; }
+        public int WheelType { get; set; }
+        public int WindowTint { get; set; }
+        public string DisplayName => Model.ToString();
+        public int Class { get; internal set; }
         public void Repair() => Health = 1000f;
+        public void SetMod(int modType, int modIndex) => BridgeRuntime.Current.TriggerClientEventForAll("ragemp:vehicleMod", new object[] { Value, modType, modIndex });
     }
 }

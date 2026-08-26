@@ -13,11 +13,26 @@ namespace GTANetworkAPI
         public static TaskMethods Task { get; } = new TaskMethods();
         public static ClientEventMethods ClientEvent { get; } = new ClientEventMethods();
         public static UtilMethods Util { get; } = new UtilMethods();
+        public static WorldMethods World { get; } = new WorldMethods();
+        public static PlayerMethods Player { get; } = new PlayerMethods();
+        public static EntityMethods Entity { get; } = new EntityMethods();
+        public static ChatMethods Chat { get; } = new ChatMethods();
+        public static MarkerMethods Marker { get; } = new MarkerMethods();
+        public static TextLabelMethods TextLabel { get; } = new TextLabelMethods();
+        public static PoolMethods Pools { get; } = new PoolMethods();
+        public static VehicleMethods Vehicle { get; } = new VehicleMethods();
+        public static ObjectMethods Object { get; } = new ObjectMethods();
+        public static BlipMethods Blip { get; } = new BlipMethods();
+        public static ColShapeMethods ColShape { get; } = new ColShapeMethods();
+        public static PedMethods Ped { get; } = new PedMethods();
+        public static ServerMethods Server { get; } = new ServerMethods();
+        public static DataMethods Data { get; } = new DataMethods();
+        public static NotificationMethods Notification { get; } = new NotificationMethods();
     }
 
     public sealed class TaskMethods
     {
-        public void Run(Action action, long delay = 0) => BridgeRuntime.Current.Schedule(action, delay);
+        public void Run(Action action, long delayTime = 0) => BridgeRuntime.Current.Schedule(action, delayTime);
         public Task<object?> WaitForMainThread(long delay = 0)
         {
             var completion = new TaskCompletionSource<object?>();
@@ -35,6 +50,16 @@ namespace GTANetworkAPI
         public void TriggerClientEventToPlayers(Player[] players, string eventName, params object[] arguments)
         {
             foreach (var player in players) TriggerClientEvent(player, eventName, arguments);
+        }
+        public void TriggerClientEventInRange(Vector3 position, float range, string eventName, params object[] arguments)
+        {
+            foreach (var player in RAGE.Entities.Players.All)
+                if (player.Position.DistanceTo(position) <= range) TriggerClientEvent(player, eventName, arguments);
+        }
+        public void TriggerClientEventInDimension(uint dimension, string eventName, params object[] arguments)
+        {
+            foreach (var player in RAGE.Entities.Players.All)
+                if (player.Dimension == dimension) TriggerClientEvent(player, eventName, arguments);
         }
     }
 
@@ -58,6 +83,8 @@ namespace GTANetworkAPI
             hash += hash << 15;
             return hash;
         }
+        public VehicleHash VehicleNameToModel(string value) => (VehicleHash)GetHashKey(value);
+        public PedHash PedNameToModel(string value) => (PedHash)GetHashKey(value);
         public string GetHashSha256(string value)
         {
             using (var sha = SHA256.Create())

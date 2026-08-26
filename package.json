@@ -11,7 +11,9 @@
     "build:resource:csharp": "pnpm run build && dotnet build packages/server-csharp/RageMP.FiveM.Bridge.Host/RageMP.FiveM.Bridge.Host.csproj -c Release && dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj -c Release && node packages/pack-bridge/pack-bridge.mjs --with-csharp --with-neptune",
     "build:csharp": "dotnet build packages/server-csharp/RageMP.FiveM.Bridge.Core/RageMP.FiveM.Bridge.Core.csproj",
     "test:csharp": "dotnet run --project packages/server-csharp/RageMP.FiveM.Bridge.Core.Tests/RageMP.FiveM.Bridge.Core.Tests.csproj",
-    "build:neptune": "dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj"
+    "build:neptune": "dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj",
+    "pack:neptune:ui": "node packages/pack-bridge/pack-neptune-ui.mjs",
+    "build:neptune:ui": "pnpm run build && node packages/pack-bridge/pack-neptune-ui.mjs"
   },
   "license": "ISC",
   "packageManager": "pnpm@10.28.2",

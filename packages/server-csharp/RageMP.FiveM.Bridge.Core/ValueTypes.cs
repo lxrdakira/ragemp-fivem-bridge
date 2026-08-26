@@ -3,6 +3,70 @@ using System.Globalization;
 
 namespace GTANetworkAPI
 {
+    public struct HeadBlend
+    {
+        public byte ShapeFirst;
+        public byte ShapeSecond;
+        public byte ShapeThird;
+        public byte SkinFirst;
+        public byte SkinSecond;
+        public byte SkinThird;
+        public float ShapeMix;
+        public float SkinMix;
+        public float ThirdMix;
+    }
+
+    public struct HeadOverlay
+    {
+        public byte Index;
+        public float Opacity;
+        public byte Color;
+        public byte SecondaryColor;
+    }
+
+    public struct Decoration
+    {
+        public uint Collection;
+        public uint Overlay;
+    }
+
+    public struct Quaternion
+    {
+        public Quaternion(float x, float y, float z, float w) { X = x; Y = y; Z = z; W = w; }
+        public Quaternion(double x, double y, double z, double w) : this((float)x, (float)y, (float)z, (float)w) { }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float W { get; set; }
+        public Quaternion Normalized
+        {
+            get
+            {
+                var length = (float)Math.Sqrt(X * X + Y * Y + Z * Z + W * W);
+                return length <= float.Epsilon ? this : new Quaternion(X / length, Y / length, Z / length, W / length);
+            }
+        }
+    }
+
+    public sealed class ComponentVariation
+    {
+        public ComponentVariation() : this(0, 0, 0) { }
+        public ComponentVariation(int drawable) : this(drawable, 0, 0) { }
+        public ComponentVariation(int drawable, int texture) : this(drawable, texture, 0) { }
+        public ComponentVariation(int drawable, int texture, int palette)
+        {
+            Drawable = drawable;
+            Texture = texture;
+            Palette = palette;
+        }
+
+        public int Drawable;
+        public int Texture;
+        public int Palette;
+
+        public int ToInt32() => (Drawable & 0xffff) | ((Texture & 0xff) << 16) | ((Palette & 0xff) << 24);
+    }
+
     public sealed class NetHandle : IEquatable<NetHandle>
     {
         public NetHandle(ushort value, EntityType type)
@@ -23,6 +87,7 @@ namespace GTANetworkAPI
 
     public sealed class Color
     {
+        public Color() : this(0, 0, 0, 255) { }
         public Color(int red, int green, int blue) : this(red, green, blue, 255) { }
         public Color(int red, int green, int blue, int alpha)
         {
@@ -87,6 +152,12 @@ namespace GTANetworkAPI
             return dx * dx + dy * dy;
         }
         public float DistanceTo2D(Vector3 value) => (float)Math.Sqrt(DistanceToSquared2D(value));
+        public Vector3 Around(float radius)
+        {
+            var angle = (float)(new Random().NextDouble() * Math.PI * 2);
+            var distance = (float)new Random().NextDouble() * radius;
+            return new Vector3(X + (float)Math.Cos(angle) * distance, Y + (float)Math.Sin(angle) * distance, Z);
+        }
         public bool Equals(Vector3? other) => other != null && X.Equals(other.X) && Y.Equals(other.Y) && Z.Equals(other.Z);
         public override bool Equals(object? obj) => Equals(obj as Vector3);
         public override int GetHashCode() => ((X.GetHashCode() * 397) ^ Y.GetHashCode()) * 397 ^ Z.GetHashCode();

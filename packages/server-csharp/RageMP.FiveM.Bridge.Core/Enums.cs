@@ -56,4 +56,37 @@ namespace GTANetworkAPI
         DummyEntity = 9,
         Ped = 10
     }
+
+    public enum DisconnectionType
+    {
+        Left = 1,
+        Timeout = 2,
+        Kicked = 3
+    }
+
+    public enum Weather
+    {
+        EXTRASUNNY, CLEAR, CLOUDS, SMOG, FOGGY, OVERCAST, RAIN, THUNDER,
+        CLEARING, NEUTRAL, SNOW, BLIZZARD, SNOWLIGHT, XMAS
+    }
+
+    public enum VehicleSeat
+    {
+        Driver = 0, RightFront = 1, LeftRear = 2, RightRear = 3,
+        ExtraSeat1 = 4, ExtraSeat2 = 5, ExtraSeat3 = 6, ExtraSeat4 = 7,
+        ExtraSeat5 = 8, ExtraSeat6 = 9, ExtraSeat7 = 10, ExtraSeat8 = 11,
+        ExtraSeat9 = 12, ExtraSeat10 = 13, ExtraSeat11 = 14, ExtraSeat12 = 15
+    }
+
+    public enum MarkerType
+    {
+        UpsideDownCone = 0, VerticalCylinder = 1, ThickChevronUp = 2, ThinChevronUp = 3,
+        CheckeredFlagRect = 4, CheckeredFlagCircle = 5, VerticleCircle = 6, PlaneModel = 7,
+        LostMCDark = 8, LostMCLight = 9, Number0 = 10, Number1 = 11, Number2 = 12,
+        Number3 = 13, Number4 = 14, Number5 = 15, Number6 = 16, Number7 = 17,
+        Number8 = 18, Number9 = 19, ChevronUpx1 = 20, ChevronUpx2 = 21,
+        ChevronUpx3 = 22, HorizontalCircleFat = 23, ReplayIcon = 24,
+        HorizontalCircleSkinny = 25, HorizontalCircleSkinnyArrow = 26,
+        HorizontalSplitArrowCircle = 27, DebugSphere = 28
+    }
 }

@@ -18,6 +18,16 @@ namespace RageMP.FiveM.Bridge.Host
             return _players.GetOrAdd(id, value => Create(value, source));
         }
 
+        public bool Remove(CitizenFX.Core.Player source, out Player? player)
+        {
+            player = null;
+            if (!ushort.TryParse(source.Handle, out var id)) return false;
+            var removed = _players.TryRemove(id, out player);
+            RAGE.Entities.Players.Remove(id);
+            if (player != null) player.IsInstanceAlive = false;
+            return removed;
+        }
+
         private Player Create(ushort id, CitizenFX.Core.Player source)
         {
             var handle = new NetHandle(id, EntityType.Player);
@@ -27,6 +37,7 @@ namespace RageMP.FiveM.Bridge.Host
             player.Ping = source.Ping;
             player.Serial = source.Identifiers["license"] ?? string.Empty;
             player.SocialClubName = source.Name;
+            RAGE.Entities.Players.Register(player);
             return player;
         }
 

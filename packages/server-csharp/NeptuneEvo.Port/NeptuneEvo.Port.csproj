@@ -7,12 +7,35 @@
     <RootNamespace>NeptuneEvo</RootNamespace>
     <GenerateDependencyFile>false</GenerateDependencyFile>
     <DebugType>embedded</DebugType>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\RageMP.FiveM.Bridge.Core\RageMP.FiveM.Bridge.Core.csproj" />
-    <!-- Migration starts from the real NeptuneEvo source. Files are added here
-         in coherent vertical slices as their API dependencies are implemented. -->
-    <Compile Include="..\..\..\..\dotnet\resources\NeptuneEvo\Main.cs" Link="NeptuneEvo\Main.cs" />
+    <ProjectReference Include="..\NeptuneEvoSDK.Port\NeptuneEvoSDK.Port.csproj" />
+    <ProjectReference Include="..\Localization.Port\Localization.Port.csproj" />
+    <ProjectReference Include="..\..\..\..\YoutubeExplode-master\YoutubeExplode\YoutubeExplode.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="linq2db.MySql" Version="3.3.0" />
+    <PackageReference Include="MySql.Data" Version="8.0.28" />
+    <PackageReference Include="MySqlBackup.NET" Version="2.3.4" />
+    <PackageReference Include="MySqlConnector" Version="1.1.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="AWSSDK.S3" Version="3.3.113.2" />
+    <PackageReference Include="log4net" Version="2.0.17" />
+    <PackageReference Include="Otp.NET" Version="1.2.2" />
+    <PackageReference Include="StackExchange.Redis" Version="2.2.79" />
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.113.7" />
+    <PackageReference Include="System.Reflection.Emit" Version="4.7.0" />
+    <PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\..\dotnet\resources\NeptuneEvo\**\*.cs"
+             Exclude="..\..\..\..\dotnet\resources\NeptuneEvo\bin\**;..\..\..\..\dotnet\resources\NeptuneEvo\obj\**"
+             Link="NeptuneEvo\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="Compatibility.cs" />
   </ItemGroup>
 </Project>

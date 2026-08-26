@@ -67,7 +67,12 @@ export function startManager(): void {
   function resolveUrl(url: string): string {
     let resolved = url;
     const atMatch = /^@([^/]+)\/(.+)$/.exec(url);
-    if (atMatch) {
+    const ragePackageMatch = /^(?:package:\/\/|https?:\/\/package\/)(.+)$/i.exec(url);
+    if (ragePackageMatch) {
+      // RAGE:MP resolves package:// from client_packages. In an integrated
+      // FiveM resource those files live at the NUI resource root.
+      resolved = `https://cfx-nui-${HOST_RESOURCE}/${ragePackageMatch[1]}`;
+    } else if (atMatch) {
       resolved = `https://cfx-nui-${atMatch[1]}/${atMatch[2]}`;
     } else if (!/^(https?:|nui:|file:|blob:|data:)/i.test(url)) {
       try {

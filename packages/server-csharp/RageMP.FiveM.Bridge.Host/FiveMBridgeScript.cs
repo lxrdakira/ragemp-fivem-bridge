@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using CitizenFX.Core;
+using CitizenFX.Core.Native;
 using GTANetworkAPI;
 using RageMP.FiveM.Bridge;
 
@@ -18,6 +19,8 @@ namespace RageMP.FiveM.Bridge.Host
         {
             BridgeRuntime.Configure(new CitizenFxRuntime(this));
             Tick += InitializeOnFirstTick;
+            EventHandlers["playerJoining"] += new Action<CitizenFX.Core.Player>(OnPlayerJoining);
+            EventHandlers["playerDropped"] += new Action<CitizenFX.Core.Player, string>(OnPlayerDropped);
         }
 
         internal CitizenFX.Core.Player? FindCitizenPlayer(ushort id) => Players[(int)id];
@@ -47,7 +50,35 @@ namespace RageMP.FiveM.Bridge.Host
             }
 
             Debug.WriteLine($"[ragemp-csharp] registered {_dispatcher.RemoteEventCount} remote and {_dispatcher.ServerEventCount} server events from {scripts.Length} scripts");
+
+            if (string.Equals(API.GetConvar("ragemp_bridge_smoke_only", "false"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                Debug.WriteLine("[ragemp-csharp] smoke-only mode: resource and player lifecycle dispatch is disabled");
+                return;
+            }
+
             await _dispatcher.DispatchServerAsync(Event.ResourceStart).ConfigureAwait(false);
+
+            foreach (var citizenPlayer in Players)
+                await DispatchPlayerConnected(citizenPlayer).ConfigureAwait(false);
+        }
+
+        private void OnPlayerJoining([FromSource] CitizenFX.Core.Player source)
+        {
+            if (!_initialized) return;
+            _ = DispatchPlayerConnected(source);
+        }
+
+        private void OnPlayerDropped([FromSource] CitizenFX.Core.Player source, string reason)
+        {
+            if (!_players.Remove(source, out var player) || player == null) return;
+            _ = _dispatcher.DispatchServerAsync(Event.PlayerDisconnected, player, DisconnectionType.Left, reason ?? string.Empty);
+        }
+
+        private Task DispatchPlayerConnected(CitizenFX.Core.Player source)
+        {
+            var player = _players.GetOrCreate(source);
+            return _dispatcher.DispatchServerAsync(Event.PlayerConnected, player);
         }
 
         private static System.Collections.Generic.IEnumerable<Script> DiscoverScripts()

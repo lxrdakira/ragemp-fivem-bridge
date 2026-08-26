@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, writeFile, rm, cp } from "node:fs/promises";
+import { mkdir, writeFile, rm, cp, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,8 +28,7 @@ function fxManifest({ withCsharp, withNeptune }) {
 
   const files = ["    'ui/_bridge.js'"];
   if (withCsharp) {
-    files.push("    'csharp/RageMP.FiveM.Bridge.Core.dll'");
-    files.push("    'csharp/Newtonsoft.Json.dll'");
+    files.push("    'csharp/*.dll'");
   }
 
   return `fx_version 'cerulean'
@@ -103,10 +102,15 @@ export async function packBridge(flags = {}) {
   }
 
   if (flags.withNeptune) {
-    const source = resolve(PACKAGES_ROOT, "server-csharp", "NeptuneEvo.Port", "bin", "Release", "netstandard2.0", "NeptuneEvo.Port.net.dll");
-    if (!existsSync(source)) throw new Error(`NeptuneEvo port output not found: ${source}`);
-    await cp(source, join(outDir, "csharp", "NeptuneEvo.Port.net.dll"));
-    console.log("  + csharp/NeptuneEvo.Port.net.dll");
+    const sourceDir = resolve(PACKAGES_ROOT, "server-csharp", "NeptuneEvo.Port", "bin", "Release", "netstandard2.0");
+    const assemblies = (await readdir(sourceDir)).filter((file) => file.endsWith(".dll"));
+    if (!assemblies.includes("NeptuneEvo.Port.net.dll")) {
+      throw new Error(`NeptuneEvo port output not found: ${sourceDir}`);
+    }
+    for (const file of assemblies) {
+      await cp(join(sourceDir, file), join(outDir, "csharp", file));
+      console.log(`  + csharp/${file}`);
+    }
   }
 
   await writeFile(join(outDir, "fxmanifest.lua"), fxManifest(flags), "utf8");
