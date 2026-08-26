@@ -22,6 +22,7 @@ namespace RageMP.FiveM.Bridge.Host
         private readonly Dictionary<int, (float Body, float Engine)> _vehicleHealth = new Dictionary<int, (float Body, float Engine)>();
         private readonly ConcurrentDictionary<int, PendingClientProcedure> _pendingClientProcedures = new ConcurrentDictionary<int, PendingClientProcedure>();
         private int _clientProcedureRequestId;
+        private long _nextNativeEntityRefreshTicks;
 
         public FiveMBridgeScript()
         {
@@ -185,8 +186,12 @@ namespace RageMP.FiveM.Bridge.Host
             _ = _dispatcher.DispatchServerAsync(Event.PlayerDamage, _players.GetOrCreate(source), attacker, weapon, healthLoss);
         }
 
-        private void OnPlayerWeaponChange([FromSource] CitizenFX.Core.Player source, uint oldWeapon, uint newWeapon) =>
-            _ = _dispatcher.DispatchServerAsync(Event.PlayerWeaponSwitch, _players.GetOrCreate(source), (WeaponHash)oldWeapon, (WeaponHash)newWeapon);
+        private void OnPlayerWeaponChange([FromSource] CitizenFX.Core.Player source, uint oldWeapon, uint newWeapon)
+        {
+            var player = _players.GetOrCreate(source);
+            player.CurrentWeapon = (WeaponHash)newWeapon;
+            _ = _dispatcher.DispatchServerAsync(Event.PlayerWeaponSwitch, player, (WeaponHash)oldWeapon, (WeaponHash)newWeapon);
+        }
 
         private void OnPlayerReady([FromSource] CitizenFX.Core.Player source, string resourceName)
         {
@@ -303,7 +308,36 @@ namespace RageMP.FiveM.Bridge.Host
             _ = _dispatcher.DispatchServerAsync(Event.ResourceStop);
         }
 
-        private Task DispatchUpdateTick() => _dispatcher.DispatchServerAsync(Event.Update);
+        private Task DispatchUpdateTick()
+        {
+            var now = DateTime.UtcNow.Ticks;
+            if (now >= _nextNativeEntityRefreshTicks)
+            {
+                _nextNativeEntityRefreshTicks = now + TimeSpan.TicksPerMillisecond * 500;
+                RefreshNativeEntityState();
+            }
+            return _dispatcher.DispatchServerAsync(Event.Update);
+        }
+
+        private static void RefreshNativeEntityState()
+        {
+            var entities = RAGE.Entities.Vehicles.All.Cast<GTANetworkAPI.Entity>()
+                .Concat(RAGE.Entities.Objects.All)
+                .Concat(RAGE.Entities.Peds.All);
+            foreach (var entity in entities)
+            {
+                var handle = entity.NativeHandle;
+                if (handle == 0 || !API.DoesEntityExist(handle)) continue;
+                var position = API.GetEntityCoords(handle);
+                var rotation = API.GetEntityRotation(handle);
+                entity.ApplyNetworkTransform(
+                    new GTANetworkAPI.Vector3(position.X, position.Y, position.Z),
+                    new GTANetworkAPI.Vector3(rotation.X, rotation.Y, rotation.Z),
+                    unchecked((uint)API.GetEntityRoutingBucket(handle)));
+                if (entity is GTANetworkAPI.Vehicle vehicle)
+                    vehicle.ApplyNetworkHealth(API.GetEntityHealth(handle), API.GetVehicleBodyHealth(handle), API.GetVehicleEngineHealth(handle));
+            }
+        }
 
         private async Task DispatchCommand(CitizenFX.Core.Player source, string commandText)
         {

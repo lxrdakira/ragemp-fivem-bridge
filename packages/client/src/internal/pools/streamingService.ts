@@ -88,15 +88,16 @@ function subscribeRegistry(pool: object, rec: StreamingInternalsRec): void {
 
 function onServerCreate(pool: object, remoteId: number, data: any): void {
   const rec = StreamingInternals.get(pool);
-  if (rec.byRemote.has(remoteId)) return;
-  const entity = createEntity(rec, remoteId, null);
+  let entity = rec.byRemote.get(remoteId);
+  if (!entity) {
+    entity = createEntity(rec, remoteId, null);
+    rec.byRemote.set(remoteId, entity);
+  }
   const state = streamEntityState(entity);
   state.isServer = true;
-  state.netId = 0;
   state.serverModel = data?.model ?? 0;
   state.serverPos = { x: data?.x ?? 0, y: data?.y ?? 0, z: data?.z ?? 0 };
   state.serverDimension = data?.dimension ?? 0;
-  rec.byRemote.set(remoteId, entity);
 }
 
 function onServerNetId(pool: object, remoteId: number, netId: number): void {

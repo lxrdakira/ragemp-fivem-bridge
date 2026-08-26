@@ -39,6 +39,13 @@ namespace GTANetworkAPI
         internal bool NetworkPublished { get; set; }
         protected void SyncNetworkState() => EntityNetworkSync.Update(this);
 
+        internal void ApplyNetworkTransform(Vector3 position, Vector3 rotation, uint dimension)
+        {
+            _position = position ?? new Vector3();
+            _rotation = rotation ?? new Vector3();
+            _dimension = dimension;
+        }
+
         public bool HasData(string key) => _data.ContainsKey(key);
         public T? GetData<T>(string key) => _data.TryGetValue(key, out var value) ? ConvertValue<T>(value) : default;
         public void SetData<T>(string key, T value)

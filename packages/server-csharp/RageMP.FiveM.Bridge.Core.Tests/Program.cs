@@ -276,11 +276,21 @@ static Task TestNativeEntitySync()
     Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[3].EventName);
     Equal(650f, vehicle.BodyHealth);
     Equal(650f, vehicle.EngineHealth);
+    var oldNetworkId = vehicle.NetworkId;
+    NAPI.Entity.SetEntityModel(vehicle.Handle, 456u);
+    Equal(456u, vehicle.Model);
+    Equal(2, runtime.CreatedEntities.Count);
+    Equal(1, runtime.DeletedEntities.Count);
+    Equal(vehicle, runtime.DeletedEntities.Single());
+    Equal(true, vehicle.NetworkId != oldNetworkId);
+    Equal("ragemp:entity:create", runtime.BroadcastEvents[4].EventName);
+    Equal("ragemp:entity:netid", runtime.BroadcastEvents[5].EventName);
+    Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[6].EventName);
     NAPI.Player.SetPlayerIntoVehicle(NewPlayer(28), vehicle.Handle, 1);
     Equal("ragemp:putIntoVehicle", runtime.ClientEvents.Single().EventName);
     Equal(vehicle.NetworkId, runtime.ClientEvents.Single().Arguments[0]);
     vehicle.Delete();
-    Equal("ragemp:entity:destroy", runtime.BroadcastEvents[4].EventName);
+    Equal("ragemp:entity:destroy", runtime.BroadcastEvents[7].EventName);
     Equal(0, vehicle.NetworkId);
     Equal(false, RAGE.Entities.Vehicles.All.Contains(vehicle));
     return Task.CompletedTask;
@@ -323,6 +333,8 @@ sealed class FakeRuntime : IBridgeRuntime
     public List<(Entity Entity, string Key, object? Value)> SharedData { get; } = new();
     public List<(Entity Entity, string Key)> ResetSharedDataKeys { get; } = new();
     public List<(string EventName, object[] Arguments)> BroadcastEvents { get; } = new();
+    public List<Entity> CreatedEntities { get; } = new();
+    public List<Entity> DeletedEntities { get; } = new();
     public void Schedule(Action action, long delayMilliseconds = 0) => action();
     public void TriggerClientEvent(Player player, string eventName, object[] arguments) => ClientEvents.Add((player, eventName, arguments));
     public void TriggerClientEventForAll(string eventName, object[] arguments) => BroadcastEvents.Add((eventName, arguments));
@@ -331,9 +343,14 @@ sealed class FakeRuntime : IBridgeRuntime
     public void ResetSharedData(Entity entity, string key) => ResetSharedDataKeys.Add((entity, key));
     public void SendChatMessage(Player player, string message) { }
     public void Kick(Player player, string reason) { }
-    public NetworkEntityReference CreateNetworkEntity(Entity entity) => new NetworkEntityReference { Handle = entity.Id, NetworkId = entity.Id + 1000 };
+    public NetworkEntityReference CreateNetworkEntity(Entity entity)
+    {
+        CreatedEntities.Add(entity);
+        var generation = (CreatedEntities.Count - 1) * 1000;
+        return new NetworkEntityReference { Handle = entity.Id + generation, NetworkId = entity.Id + generation + 1000 };
+    }
     public void UpdateNetworkEntity(Entity entity) { }
-    public void DeleteNetworkEntity(Entity entity) { }
+    public void DeleteNetworkEntity(Entity entity) => DeletedEntities.Add(entity);
     public void SetPlayerDimension(Player player, uint dimension) { }
 }
 

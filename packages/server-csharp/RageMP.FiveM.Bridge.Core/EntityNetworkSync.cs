@@ -35,6 +35,22 @@ namespace GTANetworkAPI
             }
         }
 
+        internal static void RecreateNative(Entity entity)
+        {
+            if (entity == null || !entity.NetworkPublished || !entity.IsInstanceAlive) return;
+            if (!(entity is Vehicle) && !(entity is Object) && !(entity is Ped)) return;
+
+            if (entity.NativeHandle != 0) BridgeRuntime.Current.DeleteNetworkEntity(entity);
+            entity.NativeHandle = 0;
+            entity.NetworkId = 0;
+
+            var reference = BridgeRuntime.Current.CreateNetworkEntity(entity);
+            entity.NativeHandle = reference.Handle;
+            entity.NetworkId = reference.NetworkId;
+            entity.NetworkPublished = reference.Handle != 0;
+            if (entity.NetworkPublished) PublishNativeReference(entity);
+        }
+
         internal static void Destroy(Entity entity)
         {
             if (entity == null) return;

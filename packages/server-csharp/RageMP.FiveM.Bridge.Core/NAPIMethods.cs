@@ -83,7 +83,14 @@ namespace GTANetworkAPI
         public Vector3 GetEntityPosition(NetHandle handle) => Find(handle)?.Position ?? new Vector3();
         public Vector3 GetEntityRotation(NetHandle handle) => Find(handle)?.Rotation ?? new Vector3();
         public void SetEntityDimension(NetHandle handle, uint value) { var entity = Find(handle); if (entity != null) entity.Dimension = value; }
-        public void SetEntityModel(NetHandle handle, uint model) { var entity = Find(handle); if (entity == null) return; entity.SetModelInternal(model); if (entity is Player player) player.TriggerEvent("ragemp:setModel", model); }
+        public void SetEntityModel(NetHandle handle, uint model)
+        {
+            var entity = Find(handle);
+            if (entity == null || entity.Model == model) return;
+            entity.SetModelInternal(model);
+            if (entity is Player player) player.TriggerEvent("ragemp:setModel", model);
+            else EntityNetworkSync.RecreateNative(entity);
+        }
         public void SetEntityModel(NetHandle handle, int model) => SetEntityModel(handle, unchecked((uint)model));
         public void SetEntityPosition(NetHandle handle, Vector3 position) { var entity = Find(handle); if (entity != null) entity.Position = position; }
         public void SetEntityRotation(NetHandle handle, Vector3 rotation) { var entity = Find(handle); if (entity != null) entity.Rotation = rotation; }
