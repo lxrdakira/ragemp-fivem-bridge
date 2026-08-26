@@ -77,3 +77,19 @@ set ragemp_fivem_identity_claim false
 ```
 
 The equivalent manual schema is available in `sql/fivem_identity_bridge.sql`.
+
+## Voice compatibility
+
+Neptune's RAGE:MP voice graph is preserved: server-side
+`EnableVoiceTo`/`DisableVoiceTo` authorizes each incoming peer, while the
+original client controls proximity, phone/radio mode and per-player volume.
+The FiveM client bridge keeps connected players addressable even while their
+ped is outside streaming range, so long-distance phone and radio events can
+resolve their player references.
+
+On FiveM for GTAV Enhanced, enable the documented legacy-Mumble compatibility
+layer until the port moves to Enhanced's server-owned voice-channel API:
+
+```cfg
+setr sv_mumble true
+```

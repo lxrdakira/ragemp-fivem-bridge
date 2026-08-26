@@ -28,7 +28,7 @@ export class PlayerMpPool extends Pool<PlayerMp> {
   }
 
   override get streamed(): PlayerMp[] {
-    return this.toArray().filter((p: PlayerMp) => p !== this.local);
+    return this.toArray().filter((p: PlayerMp) => p !== this.local && p.handle !== 0);
   }
 
   override forEachInStreamRange(fn: (player: PlayerMp) => void): void {

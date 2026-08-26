@@ -1,10 +1,21 @@
 import { getPlayerServerId } from "./internal/playerInternals";
 
-const LISTEN_CHANNEL = 31;
+const VOICE_TARGET = 31;
+
+function resolveServerId(player: number | any): number {
+  return typeof player === "number" ? player : player ? getPlayerServerId(player) : -1;
+}
+
+function clampVolume(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, value))
+    : 1;
+}
 
 export class VoiceChatMp {
   _enabled = true;
   _muted = false;
+  private readonly listeners = new Set<number>();
 
   get connected() {
     return MumbleIsConnected();
@@ -37,23 +48,48 @@ export class VoiceChatMp {
   }
 
   listenTo(player: number | any) {
-    const serverId = typeof player === "number" ? player : player ? getPlayerServerId(player) : null;
-    if (serverId != null) {
-      MumbleAddVoiceTargetPlayerByServerId(LISTEN_CHANNEL, serverId);
-      MumbleAddVoiceChannelListen(LISTEN_CHANNEL);
-    }
+    const serverId = resolveServerId(player);
+    if (serverId <= 0) return;
+    this.listeners.add(serverId);
+    const volume = typeof player === "number" ? 1 : clampVolume(player?.voiceVolume);
+    MumbleSetVolumeOverrideByServerId(serverId, volume);
+
+    // A RAGE listener relationship is usually bidirectional in Neptune. Keeping
+    // the peer in the Mumble target also transports radio/phone audio outside
+    // normal proximity; incoming authorization is enforced by the override.
+    MumbleAddVoiceTargetPlayerByServerId(VOICE_TARGET, serverId);
   }
 
   stopListenTo(player: number | any) {
-    const serverId = typeof player === "number" ? player : player ? getPlayerServerId(player) : null;
-    if (serverId != null) {
-      MumbleRemoveVoiceTargetPlayerByServerId(LISTEN_CHANNEL, serverId);
-    }
+    const serverId = resolveServerId(player);
+    if (serverId <= 0) return;
+    this.listeners.delete(serverId);
+    MumbleSetVolumeOverrideByServerId(serverId, 0);
+    MumbleRemoveVoiceTargetPlayerByServerId(VOICE_TARGET, serverId);
   }
 
   stopListenToAll() {
-    MumbleClearVoiceTarget(LISTEN_CHANNEL);
-    MumbleRemoveVoiceChannelListen(LISTEN_CHANNEL);
+    for (const serverId of this.listeners) MumbleSetVolumeOverrideByServerId(serverId, 0);
+    this.listeners.clear();
+    MumbleClearVoiceTarget(VOICE_TARGET);
+  }
+
+  setPlayerVolume(player: number | any, value: number) {
+    const serverId = resolveServerId(player);
+    if (serverId <= 0) return;
+    MumbleSetVolumeOverrideByServerId(serverId, this.listeners.has(serverId) ? clampVolume(value) : 0);
+  }
+
+  muteUntilEnabled(player: number | any) {
+    const serverId = resolveServerId(player);
+    if (serverId > 0 && !this.listeners.has(serverId)) MumbleSetVolumeOverrideByServerId(serverId, 0);
+  }
+
+  forgetPlayer(serverId: number) {
+    if (serverId <= 0) return;
+    this.listeners.delete(serverId);
+    MumbleSetVolumeOverrideByServerId(serverId, -1);
+    MumbleRemoveVoiceTargetPlayerByServerId(VOICE_TARGET, serverId);
   }
 
   cleanupAndReload(_resetInput = true, _resetOutput = true, _resetTargets = true) {

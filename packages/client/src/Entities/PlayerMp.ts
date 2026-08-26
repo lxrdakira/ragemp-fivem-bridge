@@ -19,24 +19,26 @@ interface VoiceFxPeakEq { lBand: number; fBandwidth: number; fQ: number; fCenter
 interface VoiceFxBQF { lFilter: number; fCenter: number; fGain: number; fBandwidth: number; fQ: number; fS: number; lChannel: number; }
 
 export class PlayerMp extends PedMpBase {
-  constructor(token: symbol, id: number, playerIndex: number) {
+  constructor(token: symbol, id: number, playerIndex: number, serverId?: number) {
     super(token, id, "player");
-    initPlayerInternals(this, playerIndex);
+    initPlayerInternals(this, playerIndex, serverId);
     EntityInternals.get(this).stateBag = () => globalThis.Player(getPlayerServerId(this)).state;
   }
 
   get ped(): number {
-    return GetPlayerPed(PlayerInternals.get(this).playerIndex);
+    const playerIndex = PlayerInternals.get(this).playerIndex;
+    return playerIndex >= 0 ? GetPlayerPed(playerIndex) : 0;
   }
   override get netId(): number {
     return getPlayerServerId(this);
   }
   override get handle(): number {
-    return GetPlayerPed(PlayerInternals.get(this).playerIndex);
+    return this.ped;
   }
 
   get name(): string {
-    return GetPlayerName(PlayerInternals.get(this).playerIndex);
+    const playerIndex = PlayerInternals.get(this).playerIndex;
+    return playerIndex >= 0 ? (GetPlayerName(playerIndex) ?? "") : "";
   }
 
   override get dimension(): number {
@@ -230,8 +232,7 @@ export class PlayerMp extends PedMpBase {
   set voiceVolume(value: number) {
     const volume = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
     PlayerInternals.get(this).voiceVolume = volume;
-    const serverId = getPlayerServerId(this);
-    if (serverId > 0) MumbleSetVolumeOverrideByServerId(serverId, volume);
+    globalThis.mp?.voiceChat?.setPlayerVolume(this, volume);
   }
   get voice3d(): boolean { return PlayerInternals.get(this).voice3d; }
   set voice3d(value: boolean) { PlayerInternals.get(this).voice3d = !!value; }

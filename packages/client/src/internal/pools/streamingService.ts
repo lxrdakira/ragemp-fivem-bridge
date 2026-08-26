@@ -8,6 +8,7 @@ import {
   streamEntityState,
   type StreamingInternalsRec,
 } from "../streamingInternals";
+import { hydrateSharedData } from "../../utils/sharedData";
 
 export const LOCAL_STREAM_ID_BASE = 2_000_000_000;
 
@@ -161,6 +162,7 @@ export function bindHandle(pool: object, remoteId: number, handle: number, netId
   }
   EntityInternals.get(entity).handle = handle;
   rec.handleToEntity.set(handle, entity);
+  try { hydrateSharedData(entity, globalThis.Entity(handle).state); } catch (_) {}
   if (!entities.has(entity.id)) {
     poolAdd(pool, entity);
     globalThis.mp?.events?.call("entityStreamIn", entity);

@@ -45,6 +45,10 @@ ragemp_bridge 'library'
 -- account for the player's stable FiveM license. Override in server.cfg with:
 -- set ragemp_fivem_identity_claim false
 
+-- FiveM Enhanced currently requires its legacy-Mumble compatibility switch
+-- for Neptune's client-managed proximity/radio/phone voice bridge:
+-- setr sv_mumble true
+
 -- Optional plugins (disabled by default). Uncomment a line to enable:
 -- bridge_world_vehicles 'yes' -- spawn server vehicles anywhere on the map (CreateVehicleServerSetter + retry queue)
 

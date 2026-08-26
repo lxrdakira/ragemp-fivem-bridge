@@ -10,6 +10,7 @@ import { playerByServerId } from "../internal/pools/playerPoolService";
 import { ClientEventManagerInternals } from "../internal/eventManagerInternals";
 import type { EventManager } from "../Events/EventManager";
 import { beginDamageEvent, endDamageEvent } from "./damageEventContext";
+import { applySharedDataValue } from "../utils/sharedData";
 
 export function setupEventManager(mgr: EventManager): void {
   setupBuiltinEvents(mgr);
@@ -289,7 +290,7 @@ export function emitDataChange(mgr: EventManager, entity: any, key: string, valu
   }
   const oldValue = snapshot.get(key);
   snapshot.set(key, value);
-  EntityInternals.get(entity).variables.set(key, value);
+  applySharedDataValue(entity, key, value);
 
   const handlers = rec.dataHandlers?.get(key);
   if (handlers) {

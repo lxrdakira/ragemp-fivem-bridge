@@ -302,6 +302,22 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
     }
   });
 
+  onNet("ragemp:removeDecoration", (collection: string | number, overlay: string | number) => {
+    const collectionHash = typeof collection === "string" ? GetHashKey(collection) : collection;
+    const overlayHash = typeof overlay === "string" ? GetHashKey(overlay) : overlay;
+    _appearance.decorations = _appearance.decorations.filter((decoration) => {
+      const currentCollection = typeof decoration.collection === "string"
+        ? GetHashKey(decoration.collection)
+        : decoration.collection;
+      const currentOverlay = typeof decoration.overlay === "string"
+        ? GetHashKey(decoration.overlay)
+        : decoration.overlay;
+      return currentCollection !== collectionHash || currentOverlay !== overlayHash;
+    });
+    const ped = PlayerPedId();
+    if (ped && ped !== 0) applyDecorations(ped);
+  });
+
   onNet("ragemp:clearDecorations", () => {
     _appearance.decorations = [];
     const ped = PlayerPedId();

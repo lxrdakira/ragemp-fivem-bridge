@@ -4,7 +4,9 @@ import { defineInternals } from "@ragemp-fivem-bridge/shared/internal";
 import { rageHealthToGtaPed } from "@ragemp-fivem-bridge/shared";
 import { onWorldScan } from "../../utils/worldScan";
 import { PlayerMp } from "../../Entities/PlayerMp";
+import { setPlayerNetworkIdentity } from "../playerInternals";
 import type { PlayerMpPool } from "../../Pools/PlayerMpPool";
+import { hydrateSharedData } from "../../utils/sharedData";
 
 interface PlayerPoolState {
   serverIdToRemote: Map<number, number>;
@@ -16,6 +18,10 @@ const Store = defineInternals<PlayerPoolState>();
 
 export function serverIdToRemoteId(pool: object, serverId: number): number | undefined {
   return Store.get(pool).serverIdToRemote.get(serverId);
+}
+
+export function remoteIdToServerId(pool: object, remoteId: number): number | undefined {
+  return Store.get(pool).remoteToServerId.get(remoteId);
 }
 
 export function playerByServerId(serverId: number): any {
@@ -40,12 +46,23 @@ export function setupPlayerPool(pool: PlayerMpPool): void {
 function setLocalRemoteId(pool: PlayerMpPool, remoteId: number): void {
   const local = pool.local;
   if (!local || local.remoteId === remoteId) return;
+  const duplicate = pool.atRemoteId(remoteId);
+  if (duplicate && duplicate !== local) {
+    removeFromPool(pool, duplicate.id);
+    freeClientId(pool, duplicate.id);
+  }
   attachRemoteId(pool, local, remoteId);
 }
 
-function addRemotePlayer(pool: PlayerMpPool, remoteId: number, playerIndex: number): void {
-  if (pool.atRemoteId(remoteId)) return;
-  addNetworked(pool, new PlayerMp(CONSTRUCT, remoteId, playerIndex));
+function addRemotePlayer(pool: PlayerMpPool, remoteId: number, playerIndex: number, serverId: number): void {
+  const existing = pool.atRemoteId(remoteId);
+  if (existing) {
+    setPlayerNetworkIdentity(existing, playerIndex, serverId);
+    return;
+  }
+  const player = addNetworked(pool, new PlayerMp(CONSTRUCT, remoteId, playerIndex, serverId));
+  try { hydrateSharedData(player, globalThis.Player(serverId).state); } catch (_) {}
+  globalThis.mp?.voiceChat?.muteUntilEnabled(player);
 }
 
 function setupLocal(pool: PlayerMpPool): void {
@@ -54,8 +71,9 @@ function setupLocal(pool: PlayerMpPool): void {
       const playerIndex = PlayerId();
       const serverId = GetPlayerServerId(playerIndex);
       if (!serverId) return false;
-      pool.local = new PlayerMp(CONSTRUCT, 0, playerIndex);
+      pool.local = new PlayerMp(CONSTRUCT, 0, playerIndex, serverId);
       addLocal(pool, pool.local);
+      try { hydrateSharedData(pool.local, globalThis.Player(serverId).state); } catch (_) {}
       const remoteId = Store.get(pool).serverIdToRemote.get(serverId);
       if (remoteId !== undefined) setLocalRemoteId(pool, remoteId);
       return true;
@@ -84,16 +102,13 @@ function setupStreaming(pool: PlayerMpPool): void {
 
       const remoteId = st.serverIdToRemote.get(serverId);
       if (remoteId === undefined) continue;
-      addRemotePlayer(pool, remoteId, playerIndex);
+      addRemotePlayer(pool, remoteId, playerIndex, serverId);
     }
 
-    for (const [localId, entity] of poolStore(pool).entities) {
+    for (const [, entity] of poolStore<PlayerMp>(pool).entities) {
       if (pool.local && entity === pool.local) continue;
       const serverId = st.remoteToServerId.get(entity.remoteId);
-      if (serverId === undefined || !st.activeByServerId.has(serverId)) {
-        removeFromPool(pool, localId);
-        freeClientId(pool, localId);
-      }
+      if (serverId !== undefined && !st.activeByServerId.has(serverId)) setPlayerNetworkIdentity(entity, -1, serverId);
     }
   });
 }
@@ -113,15 +128,14 @@ function applyMap(pool: PlayerMpPool, source: number, remoteId: number): void {
     }
   } catch (e) {}
 
-  const playerIndex = st.activeByServerId.get(source);
-  if (playerIndex !== undefined) addRemotePlayer(pool, remoteId, playerIndex);
+  const playerIndex = st.activeByServerId.get(source) ?? GetPlayerFromServerId(source);
+  addRemotePlayer(pool, remoteId, playerIndex >= 0 ? playerIndex : -1, source);
 }
 
 function applyUnmap(pool: PlayerMpPool, source: number): void {
   const st = Store.get(pool);
   if (source > 0) {
-    MumbleSetVolumeOverrideByServerId(source, -1);
-    MumbleRemoveVoiceTargetPlayerByServerId(31, source);
+    globalThis.mp?.voiceChat?.forgetPlayer(source);
   }
   const remoteId = st.serverIdToRemote.get(source);
   st.serverIdToRemote.delete(source);
@@ -173,12 +187,14 @@ function setupServerSync(pool: PlayerMpPool): void {
   onNet("ragemp:enableVoiceTo", (remoteId: number) => {
     const voiceChat = globalThis.mp?.voiceChat;
     const target = pool.atRemoteId(remoteId);
-    if (voiceChat && target) voiceChat.listenTo(target);
+    const serverId = remoteIdToServerId(pool, remoteId);
+    if (voiceChat && (target || serverId !== undefined)) voiceChat.listenTo(target ?? serverId!);
   });
 
   onNet("ragemp:disableVoiceTo", (remoteId: number) => {
     const voiceChat = globalThis.mp?.voiceChat;
     const target = pool.atRemoteId(remoteId);
-    if (voiceChat && target) voiceChat.stopListenTo(target);
+    const serverId = remoteIdToServerId(pool, remoteId);
+    if (voiceChat && (target || serverId !== undefined)) voiceChat.stopListenTo(target ?? serverId!);
   });
 }
