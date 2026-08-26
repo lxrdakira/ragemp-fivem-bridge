@@ -1,3 +1,5 @@
+import { acknowledgeManagedSpawn } from "../../internal/eventManagerService";
+
 interface PluginContext {
   log: (...args: unknown[]) => void;
   [key: string]: unknown;
@@ -123,7 +125,7 @@ export default function setup({ mp, plugin }: { mp: any; plugin: PluginContext }
       DoScreenFadeIn(500);
       SetPlayerControl(PlayerId(), true, 0);
 
-      if (globalThis.mp?.events) globalThis.mp.events._wasAlive = true;
+      acknowledgeManagedSpawn(mp.events);
       const wasFirstSpawn = !hasSpawned;
       mp.events.call("playerSpawn", wasFirstSpawn);
       hasSpawned = true;

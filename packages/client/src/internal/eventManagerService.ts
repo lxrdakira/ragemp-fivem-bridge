@@ -441,6 +441,16 @@ export function initTick(mgr: EventManager, ped: number, cache: { players: numbe
   }
 }
 
+/**
+ * Keep the lifecycle observer in sync when spawnmanager performs an explicit
+ * resurrection and emits playerSpawn itself. Without this acknowledgement the
+ * next lifecycle tick sees the same dead -> alive transition and emits a
+ * second playerSpawn to both the legacy client and C# server.
+ */
+export function acknowledgeManagedSpawn(mgr: EventManager): void {
+  ClientEventManagerInternals.get(mgr).wasAlive = true;
+}
+
 export function tickLifecycle(mgr: EventManager, ped: number, localPlayer: any): void {
   const rec = ClientEventManagerInternals.get(mgr);
   const isDead = IsPedDeadOrDying(ped, true);
@@ -547,15 +557,10 @@ export function tickVehicleState(mgr: EventManager, ped: number, localPlayer: an
     rec.isTryingToEnterVehicle = true;
     rec.tryingToEnterVehicleHandle = tryingToEnterVehicle;
 
-    let seatIndex = -1;
-    const maxPassengers =
-      GetVehicleMaxNumberOfPassengers(tryingToEnterVehicle);
-    for (let s = -1; s < maxPassengers; s++) {
-      if (GetPedInVehicleSeat(tryingToEnterVehicle, s) === 0) {
-        seatIndex = s;
-        break;
-      }
-    }
+    // RAGE:MP exposes the actual door/seat the ped is approaching. Selecting
+    // the first empty seat is observably different (door traps, driving-school
+    // restrictions and seat-specific animations all consume this value).
+    const seatIndex = GetSeatPedIsTryingToEnter(ped);
 
     const vehicleNetId = safeGetNetworkId(tryingToEnterVehicle);
     const startVehicle =
