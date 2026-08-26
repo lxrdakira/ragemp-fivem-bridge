@@ -15,6 +15,7 @@ main-thread checks; all FiveM-specific behavior lives in this repository.
 - server vehicles, objects, peds, controller ownership and entity recreation;
 - markers, labels, blips, checkpoints, colshapes and routing buckets;
 - shared data/state bags, client events and client procedures;
+- real FiveM DUI-backed RAGE headless browsers for world-space CEF markers;
 - weather, time, IPL and world-prop state replay for joining clients;
 - original JavaScript client plus original Svelte/legacy CEF interfaces;
 - automatic runtime settings/bootstrap and a legacy-account FiveM identity bridge.
@@ -25,10 +26,12 @@ The complete compile/audit gate is:
 pnpm run verify:neptune
 ```
 
-It audits the original client API calls, runs the C# contract suite, builds the
-bridge/client/CEF, compiles the complete NeptuneEvo assembly, and repacks the
-development resources. This is a static gate; an end-to-end gameplay claim
-still requires an allowed FXServer + MySQL test run.
+It audits the original client API calls, verifies 851 literal and dynamically
+constructed client/server event contracts plus all server lifecycle emitters,
+runs the C# contract suite, builds the bridge/client/CEF, compiles the complete
+NeptuneEvo assembly, and repacks the development resources. This is a static
+gate; an end-to-end gameplay claim still requires an allowed FXServer + MySQL
+test run.
 
 ## Resource packaging
 
@@ -74,6 +77,10 @@ ensure neptuneevo-ui
 The bridge keeps the original `mp.gui.takeScreenshot(name, ...)` and
 `http://screenshots/name` contract in memory, so the unchanged CEF code can
 continue reading and uploading captured images.
+
+The original YouTube vehicle-audio feature also requires `ffmpeg` to be
+available on the FXServer process `PATH`. Its writable cache is automatically
+redirected to `audio_cache` in the server working directory.
 
 ## Legacy account identity
 

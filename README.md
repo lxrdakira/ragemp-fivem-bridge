@@ -1,8 +1,14 @@
 # RAGE:MP → FiveM Bridge
 
-Run your RAGE:MP JavaScript gamemode on a FiveM server with minimal changes. The bridge reimplements the `mp.*` API surface on top of FiveM natives — players, vehicles, events, commands, blips, checkpoints, markers, colshapes, pickups, dummies, browsers (NUI), world, and game utilities.
+Run a RAGE:MP gamemode on a FiveM server with minimal changes. The bridge
+reimplements the `mp.*` API surface on top of FiveM natives — players,
+vehicles, events, commands, blips, checkpoints, markers, colshapes, pickups,
+dummies, browsers (NUI/DUI), world, and game utilities.
 
-> **JavaScript gamemodes only.** TypeScript declarations are included for IDE autocomplete.
+The upstream bridge supports JavaScript resources. This branch also contains a
+CitizenFX C# host and a complete NeptuneEvo/7Hills `GTANetworkAPI`
+compatibility assembly. See [docs/csharp-bridge.md](docs/csharp-bridge.md) for
+the Neptune build, resource layout, configuration, and verification gate.
 
 ## 📖 Documentation
 

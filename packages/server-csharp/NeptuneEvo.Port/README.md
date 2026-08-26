@@ -2,7 +2,9 @@
 
 This project links and compiles the complete sibling NeptuneEvo C# source tree.
 It does not fork or overwrite the original gameplay code. FiveM-only additions,
-including legacy account identity binding, are compiled beside the linked source.
+including legacy account identity binding and RAGE runtime-owned event adapters,
+are compiled beside the linked source. Generated sources also redirect the
+legacy `client_packages/audio_cache` path to the writable FiveM server runtime.
 
 Build:
 

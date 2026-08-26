@@ -1,0 +1,23 @@
+# NeptuneEvo/7Hills FiveM port — relevant server.cfg fragment
+
+sv_maxclients 100
+
+# Allow a successful legacy login to bind an unclaimed account to the player's
+# stable FiveM license. Set false if accounts will be bound manually.
+set ragemp_fivem_identity_claim true
+
+# Required by the current Neptune client-managed proximity/radio/phone voice
+# graph on FiveM Enhanced.
+setr sv_mumble true
+
+# Optional, but required for phone-camera uploads and screenshot URL emulation.
+# ensure screenshot-basic
+
+# The bridge must start before the original client/CEF resource.
+ensure ragemp-fivem-bridge
+
+# Use this local overlay while both resources remain in this workspace.
+ensure neptuneevo-ui-dev
+
+# For a copied/deployed server, build the portable UI and use this instead:
+# ensure neptuneevo-ui
