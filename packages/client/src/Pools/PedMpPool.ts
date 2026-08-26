@@ -6,6 +6,7 @@ import { StreamingInternals } from "../internal/streamingInternals";
 import { setupPedPool } from "../internal/pools/pedPoolService";
 import { startStreaming, registerLocalStreamed, removeFromStreamingPool } from "../internal/pools/streamingService";
 import { registerNativeDimensionEntity } from "../utils/nativeEntityDimension";
+import { enableDeferredNativeActions, flushDeferredNativeActions } from "../utils/nativeEntityReady";
 
 export class PedMpPool extends StreamingPool<PedMp> {
     constructor() {
@@ -36,6 +37,7 @@ export class PedMpPool extends StreamingPool<PedMp> {
 
         const hash = typeof model === "string" ? GetHashKey(model) : model;
         const ped = new PedMp(CONSTRUCT, 0, 0);
+        enableDeferredNativeActions(ped);
         registerLocalStreamed(this, ped);
 
         const finish = () => {
@@ -65,6 +67,7 @@ export class PedMpPool extends StreamingPool<PedMp> {
 
             ped.dimension = options.dimension ?? 0;
             registerNativeDimensionEntity(ped);
+            flushDeferredNativeActions(ped);
 
             if (callback) {
                 try {

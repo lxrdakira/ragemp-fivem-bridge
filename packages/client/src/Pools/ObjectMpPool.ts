@@ -1,12 +1,13 @@
 import { Vector3 } from "@ragemp-fivem-bridge/shared";
-import { poolStore, CONSTRUCT } from "@ragemp-fivem-bridge/shared/internal";
+import { poolStore, CONSTRUCT, EntityInternals } from "@ragemp-fivem-bridge/shared/internal";
 import { ObjectMp } from "../Entities/ObjectMp";
 import { StreamingPool } from "./StreamingPool";
 import { StreamingInternals, streamEntityState } from "../internal/streamingInternals";
 import { ObjectInternals } from "../internal/objectInternals";
 import { setupObjectPool } from "../internal/pools/objectPoolService";
-import { startNetworked, registerLocalStreamed, setStreamHandlers } from "../internal/pools/streamingService";
+import { startNetworked, registerLocalStreamed, setStreamHandlers, removeFromStreamingPool } from "../internal/pools/streamingService";
 import { registerNativeDimensionEntity } from "../utils/nativeEntityDimension";
+import { enableDeferredNativeActions, flushDeferredNativeActions } from "../utils/nativeEntityReady";
 
 export class ObjectMpPool extends StreamingPool<ObjectMp> {
   constructor() {
@@ -27,28 +28,58 @@ export class ObjectMpPool extends StreamingPool<ObjectMp> {
     isNetwork?: boolean;
   } = {}): ObjectMp {
     const modelHash = typeof model === "string" ? GetHashKey(model) : model;
-    const isNetwork = options.isNetwork !== undefined ? !!options.isNetwork : true;
-
-    const handle = CreateObject(modelHash, position.x, position.y, position.z, isNetwork, true, false);
-    const obj = new ObjectMp(CONSTRUCT, 0, handle);
-
-    if (options.rotation) {
-      obj.rotation = options.rotation;
+    // Older RAGE client code also passes a Vector3 directly as the rotation.
+    if (options && typeof (options as any).x === "number" && typeof (options as any).y === "number" && typeof (options as any).z === "number" && !(options as any).rotation) {
+      options = { rotation: options as unknown as Vector3 };
     }
+    // mp.objects.new creates a client-local entity. An explicit bridge-only
+    // isNetwork option can still opt in, but must not leak local props globally.
+    const isNetwork = options.isNetwork !== undefined ? !!options.isNetwork : false;
 
-    if (options.alpha !== undefined) {
-      obj.alpha = options.alpha;
-    }
-
-    if (options.dimension !== undefined) {
-      obj.dimension = options.dimension;
-    }
-
-    registerNativeDimensionEntity(obj);
-
+    const obj = new ObjectMp(CONSTRUCT, 0, null);
+    enableDeferredNativeActions(obj);
     registerLocalStreamed(this, obj);
-    StreamingInternals.get(this).handleToEntity.set(handle, obj);
-    globalThis.mp?.events?.call("entityStreamIn", obj);
+
+    const finish = (): void => {
+      if (!StreamingInternals.get(this).byLocal.has(obj.id)) return;
+      const handle = CreateObject(modelHash, position.x, position.y, position.z, isNetwork, true, false);
+      if (!handle) {
+        removeFromStreamingPool(this, obj.id);
+        return;
+      }
+      EntityInternals.get(obj).handle = handle;
+      StreamingInternals.get(this).handleToEntity.set(handle, obj);
+      SetEntityAsMissionEntity(handle, true, true);
+      SetModelAsNoLongerNeeded(modelHash);
+
+      if (options.rotation) obj.rotation = options.rotation;
+      if (options.alpha !== undefined) obj.alpha = options.alpha;
+      if (options.dimension !== undefined) obj.dimension = options.dimension;
+      registerNativeDimensionEntity(obj);
+      flushDeferredNativeActions(obj);
+      globalThis.mp?.events?.call("entityStreamIn", obj);
+    };
+
+    if (HasModelLoaded(modelHash)) {
+      finish();
+    } else {
+      RequestModel(modelHash);
+      const startedAt = GetGameTimer();
+      const tick = setTick(() => {
+        if (!StreamingInternals.get(this).byLocal.has(obj.id)) {
+          clearTick(tick);
+        } else if (HasModelLoaded(modelHash)) {
+          clearTick(tick);
+          finish();
+        } else if (GetGameTimer() - startedAt > 30000) {
+          clearTick(tick);
+          removeFromStreamingPool(this, obj.id);
+          console.warn(`[ragemp-bridge] mp.objects.new: model ${modelHash} failed to load after 30s — object not created.`);
+        } else {
+          RequestModel(modelHash);
+        }
+      });
+    }
 
     return obj;
   }

@@ -3,6 +3,7 @@ import { EntityInternals } from "@ragemp-fivem-bridge/shared/internal";
 import { toVec3 } from "../utils/vec";
 import { safeGetNetworkId } from "../utils/netId";
 import { setNativeEntityDimension, setNativeEntityVisible } from "../utils/nativeEntityDimension";
+import { runNativeEntityAction } from "../utils/nativeEntityReady";
 
 export class EntityMpBase extends Entity {
   constructor(token: symbol, id: number, type: string, handle: number | null) {
@@ -14,21 +15,21 @@ export class EntityMpBase extends Entity {
     return toVec3(GetEntityCoords(this.handle, true));
   }
   override set position(value: Vector3) {
-    SetEntityCoords(this.handle, value.x, value.y, value.z, false, false, false, false);
+    runNativeEntityAction(this, (handle) => SetEntityCoords(handle, value.x, value.y, value.z, false, false, false, false));
   }
 
   get rotation(): Vector3 {
     return toVec3(GetEntityRotation(this.handle, 2));
   }
   set rotation(value: Vector3) {
-    SetEntityRotation(this.handle, value.x, value.y, value.z, 2, false);
+    runNativeEntityAction(this, (handle) => SetEntityRotation(handle, value.x, value.y, value.z, 2, false));
   }
 
   get heading(): number {
     return GetEntityHeading(this.handle);
   }
   set heading(value: number) {
-    SetEntityHeading(this.handle, value);
+    runNativeEntityAction(this, (handle) => SetEntityHeading(handle, value));
   }
 
   override get model(): number {
@@ -54,7 +55,7 @@ export class EntityMpBase extends Entity {
     return GetEntityAlpha(this.handle);
   }
   override set alpha(value: number) {
-    SetEntityAlpha(this.handle, value, false);
+    runNativeEntityAction(this, (handle) => SetEntityAlpha(handle, value, false));
   }
 
   get dead(): boolean {
@@ -164,19 +165,19 @@ export class EntityMpBase extends Entity {
   }
 
   setCoords(x: number, y: number, z: number, xAxis?: boolean, yAxis?: boolean, zAxis?: boolean, clearArea?: boolean): void {
-    SetEntityCoords(this.handle, x, y, z, xAxis ?? false, yAxis ?? false, zAxis ?? false, clearArea ?? true);
+    runNativeEntityAction(this, (handle) => SetEntityCoords(handle, x, y, z, xAxis ?? false, yAxis ?? false, zAxis ?? false, clearArea ?? true));
   }
 
   setCoordsNoOffset(x: number, y: number, z: number, xAxis?: boolean, yAxis?: boolean, zAxis?: boolean): void {
-    SetEntityCoordsNoOffset(this.handle, x, y, z, xAxis ?? true, yAxis ?? true, zAxis ?? true);
+    runNativeEntityAction(this, (handle) => SetEntityCoordsNoOffset(handle, x, y, z, xAxis ?? true, yAxis ?? true, zAxis ?? true));
   }
 
   setRotation(pitch: number, roll: number, yaw: number, rotationOrder?: number, p5?: boolean): void {
-    SetEntityRotation(this.handle, pitch, roll, yaw, rotationOrder ?? 2, p5 ?? true);
+    runNativeEntityAction(this, (handle) => SetEntityRotation(handle, pitch, roll, yaw, rotationOrder ?? 2, p5 ?? true));
   }
 
   setHeading(heading: number): void {
-    SetEntityHeading(this.handle, heading);
+    runNativeEntityAction(this, (handle) => SetEntityHeading(handle, heading));
   }
 
   setHealth(health: number): void {
@@ -188,11 +189,11 @@ export class EntityMpBase extends Entity {
   }
 
   setAlpha(alphaLevel: number, skin?: boolean): void {
-    SetEntityAlpha(this.handle, alphaLevel, !!skin);
+    runNativeEntityAction(this, (handle) => SetEntityAlpha(handle, alphaLevel, !!skin));
   }
 
   resetAlpha(): void {
-    ResetEntityAlpha(this.handle);
+    runNativeEntityAction(this, (handle) => ResetEntityAlpha(handle));
   }
 
   setVelocity(x: number, y: number, z: number): void {
@@ -204,11 +205,11 @@ export class EntityMpBase extends Entity {
   }
 
   setCollision(toggle: boolean, keepPhysics?: boolean): void {
-    SetEntityCollision(this.handle, !!toggle, keepPhysics ?? true);
+    runNativeEntityAction(this, (handle) => SetEntityCollision(handle, !!toggle, keepPhysics ?? true));
   }
 
   setNoCollision(entity: any, toggle: boolean): void {
-    SetEntityNoCollisionEntity(this.handle, entity?.handle ?? entity, !!toggle);
+    runNativeEntityAction(this, (handle) => SetEntityNoCollisionEntity(handle, entity?.handle ?? entity, !!toggle));
   }
 
   setLodDist(value: number): void {
@@ -216,7 +217,7 @@ export class EntityMpBase extends Entity {
   }
 
   setInvincible(toggle: boolean): void {
-    SetEntityInvincible(this.handle, !!toggle);
+    runNativeEntityAction(this, (handle) => SetEntityInvincible(handle, !!toggle));
   }
 
   setProofs(bulletProof: boolean, fireProof: boolean, explosionProof: boolean, collisionProof: boolean, meleeProof: boolean, steamProof: boolean, p7: boolean, drownProof: boolean): void {
@@ -246,12 +247,12 @@ export class EntityMpBase extends Entity {
   }
 
   freezePosition(toggle: boolean): void {
-    FreezeEntityPosition(this.handle, !!toggle);
+    runNativeEntityAction(this, (handle) => FreezeEntityPosition(handle, !!toggle));
   }
 
   attachTo(entity: any, boneIndex: number, xPos: number, yPos: number, zPos: number, xRot: number, yRot: number, zRot: number, p9: boolean, useSoftPinning: boolean, collision: boolean, isPed: boolean, vertexIndex?: number, fixedRot?: boolean): void {
-    AttachEntityToEntity(
-      this.handle,
+    runNativeEntityAction(this, (handle) => AttachEntityToEntity(
+      handle,
       entity?.handle ?? entity,
       boneIndex,
       xPos, yPos, zPos,
@@ -262,7 +263,7 @@ export class EntityMpBase extends Entity {
       !!isPed,
       vertexIndex ?? 2,
       !!fixedRot,
-    );
+    ));
   }
 
   detach(p1?: boolean, collision?: boolean): void {

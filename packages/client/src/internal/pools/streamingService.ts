@@ -10,6 +10,7 @@ import {
 } from "../streamingInternals";
 import { hydrateSharedData } from "../../utils/sharedData";
 import { unregisterNativeDimensionEntity } from "../../utils/nativeEntityDimension";
+import { clearDeferredNativeActions } from "../../utils/nativeEntityReady";
 
 export const LOCAL_STREAM_ID_BASE = 2_000_000_000;
 
@@ -297,6 +298,7 @@ export function removeFromStreamingPool(pool: object, id: number): void {
   const entity = rec.byLocal.get(id) ?? poolStore(pool).entities.get(id);
   if (entity) {
     unregisterNativeDimensionEntity(entity);
+    clearDeferredNativeActions(entity);
     if (entity.handle) rec.handleToEntity.delete(entity.handle);
     const state = streamEntityState(entity);
     if (state.netId) rec.netIdToRemote.delete(state.netId);

@@ -11,6 +11,7 @@ import {
 import { startStreaming, setStreamHandlers, registerLocalStreamed, removeFromStreamingPool } from "../internal/pools/streamingService";
 import { applyVehicleColorOption } from "../utils/vehicleSync";
 import { registerNativeDimensionEntity } from "../utils/nativeEntityDimension";
+import { enableDeferredNativeActions, flushDeferredNativeActions } from "../utils/nativeEntityReady";
 
 export class VehicleMpPool extends StreamingPool<VehicleMp> {
   constructor() {
@@ -33,6 +34,7 @@ export class VehicleMpPool extends StreamingPool<VehicleMp> {
   } = {}): VehicleMp {
     const hash = typeof model === "string" ? GetHashKey(model) : model;
     const vehicle = new VehicleMp(CONSTRUCT, 0, 0);
+    enableDeferredNativeActions(vehicle);
     registerLocalStreamed(this, vehicle);
 
     const finish = (): void => {
@@ -54,6 +56,7 @@ export class VehicleMpPool extends StreamingPool<VehicleMp> {
       if (options.color !== undefined) applyVehicleColorOption(handle, options.color);
 
       registerNativeDimensionEntity(vehicle);
+      flushDeferredNativeActions(vehicle);
 
       globalThis.mp?.events?.call("entityStreamIn", vehicle);
     };
