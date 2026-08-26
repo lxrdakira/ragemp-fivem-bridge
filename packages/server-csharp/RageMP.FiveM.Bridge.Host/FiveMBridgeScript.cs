@@ -154,6 +154,7 @@ namespace RageMP.FiveM.Bridge.Host
                 pending.Completion.TrySetException(new InvalidOperationException("Player disconnected during client procedure: " + pending.Name));
             }
             if (!_players.Remove(source, out var player) || player == null) return;
+            BaseScript.TriggerClientEvent("ragemp:player:unmap", player.Id);
             _ = _dispatcher.DispatchServerAsync(Event.PlayerDisconnected, player, DisconnectionType.Left, reason ?? string.Empty);
         }
 
@@ -190,8 +191,19 @@ namespace RageMP.FiveM.Bridge.Host
         private void OnPlayerReady([FromSource] CitizenFX.Core.Player source, string resourceName)
         {
             EntityNetworkSync.SendAll(_players.GetOrCreate(source));
+            var playerSnapshot = _players.All
+                .Select(player => (object)new object[] { (int)player.Id, (int)player.Id })
+                .ToArray();
+            BaseScript.TriggerClientEvent(source, "ragemp:player:snapshot", new object[] { playerSnapshot });
             BaseScript.TriggerClientEvent(source, "ragemp:csharp:variadicEvents", new object[] { _variadicRemoteEvents });
             BaseScript.TriggerClientEvent(source, "ragemp:csharp:eventContracts", new object[] { _remoteEventContracts });
+            BaseScript.TriggerClientEvent(source, "ragemp:setAutoRespawn", NAPI.Server.AutoRespawnAfterDeath);
+            BaseScript.TriggerClientEvent(source, "ragemp:setWeather", NAPI.World.WeatherName);
+            BaseScript.TriggerClientEvent(source, "ragemp:setTime", NAPI.World.Hour, NAPI.World.Minute, NAPI.World.Second);
+            foreach (var ipl in NAPI.World.GetRequestedIpls())
+                BaseScript.TriggerClientEvent(source, "ragemp:requestIpl", ipl);
+            foreach (var deletion in NAPI.World.GetWorldPropDeletions())
+                BaseScript.TriggerClientEvent(source, "ragemp:deleteWorldProp", deletion.Model, deletion.Position.X, deletion.Position.Y, deletion.Position.Z, deletion.Radius);
         }
 
         private void OnPlayerState([FromSource] CitizenFX.Core.Player source, float x, float y, float z, float heading, int health, int armor)
@@ -298,18 +310,23 @@ namespace RageMP.FiveM.Bridge.Host
             try
             {
                 var handled = await _dispatcher.DispatchCommandAsync(_players.GetOrCreate(source), commandText);
-                if (!handled) BaseScript.TriggerClientEvent(source, "ragemp:chatMessage", "Команда не найдена!");
+                if (!handled && NAPI.Server.GlobalDefaultCommandMessages)
+                    BaseScript.TriggerClientEvent(source, "ragemp:chatMessage", NAPI.Server.CommandErrorMessage);
             }
             catch (Exception error)
             {
                 Debug.WriteLine("[ragemp-csharp] command failed: " + error);
-                BaseScript.TriggerClientEvent(source, "ragemp:chatMessage", "Ошибка аргументов команды.");
+                if (NAPI.Server.GlobalDefaultCommandMessages)
+                    BaseScript.TriggerClientEvent(source, "ragemp:chatMessage", "Ошибка аргументов команды.");
             }
         }
 
         private Task DispatchPlayerConnected(CitizenFX.Core.Player source)
         {
             var player = _players.GetOrCreate(source);
+            BaseScript.TriggerClientEvent("ragemp:player:map", (int)player.Id, (int)player.Id);
+            if (NAPI.Server.AutoSpawnOnConnect)
+                NAPI.Player.SpawnPlayer(player, new GTANetworkAPI.Vector3(0f, 0f, 72f));
             return _dispatcher.DispatchServerAsync(Event.PlayerConnected, player);
         }
 

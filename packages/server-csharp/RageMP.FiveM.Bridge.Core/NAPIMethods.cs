@@ -8,12 +8,42 @@ namespace GTANetworkAPI
 {
     public sealed class WorldMethods
     {
-        public void SetTime(int hour, int minute, int second) => BridgeRuntime.Current.TriggerClientEventForAll("ragemp:setTime", new object[] { hour, minute, second });
-        public void SetWeather(string weather) => BridgeRuntime.Current.TriggerClientEventForAll("ragemp:setWeather", new object[] { weather });
+        private readonly object _sync = new object();
+        private readonly HashSet<string> _requestedIpls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<(uint Model, Vector3 Position, float Radius)> _worldPropDeletions = new List<(uint, Vector3, float)>();
+
+        public int Hour { get; private set; } = 12;
+        public int Minute { get; private set; }
+        public int Second { get; private set; }
+        public string WeatherName { get; private set; } = "CLEAR";
+
+        public void SetTime(int hour, int minute, int second)
+        {
+            Hour = hour; Minute = minute; Second = second;
+            BridgeRuntime.Current.TriggerClientEventForAll("ragemp:setTime", new object[] { hour, minute, second });
+        }
+        public void SetWeather(string weather)
+        {
+            WeatherName = weather ?? "CLEAR";
+            BridgeRuntime.Current.TriggerClientEventForAll("ragemp:setWeather", new object[] { WeatherName });
+        }
         public void SetWeather(Weather weather) => SetWeather(weather.ToString());
-        public void RequestIpl(string ipl) => BridgeRuntime.Current.TriggerClientEventForAll("ragemp:requestIpl", new object[] { ipl });
-        public void DeleteWorldProp(uint model, Vector3 position, float radius) => BridgeRuntime.Current.TriggerClientEventForAll("ragemp:deleteWorldProp", new object[] { model, position.X, position.Y, position.Z, radius });
+        public void RequestIpl(string ipl)
+        {
+            if (string.IsNullOrWhiteSpace(ipl)) return;
+            lock (_sync) _requestedIpls.Add(ipl);
+            BridgeRuntime.Current.TriggerClientEventForAll("ragemp:requestIpl", new object[] { ipl });
+        }
+        public void DeleteWorldProp(uint model, Vector3 position, float radius)
+        {
+            var point = position ?? new Vector3();
+            lock (_sync) _worldPropDeletions.Add((model, new Vector3(point.X, point.Y, point.Z), radius));
+            BridgeRuntime.Current.TriggerClientEventForAll("ragemp:deleteWorldProp", new object[] { model, point.X, point.Y, point.Z, radius });
+        }
         public void DeleteWorldProp(int model, Vector3 position, float radius) => DeleteWorldProp(unchecked((uint)model), position, radius);
+
+        internal string[] GetRequestedIpls() { lock (_sync) return _requestedIpls.ToArray(); }
+        internal (uint Model, Vector3 Position, float Radius)[] GetWorldPropDeletions() { lock (_sync) return _worldPropDeletions.ToArray(); }
     }
 
     public sealed class PlayerMethods
@@ -38,7 +68,11 @@ namespace GTANetworkAPI
         public void SetPlayerFaceFeature(Player player, int index, float scale) => player.TriggerEvent("ragemp:setFaceFeature", index, scale);
         public void SetPlayerHeadBlend(Player player, HeadBlend blend) => player.TriggerEvent("ragemp:setHeadBlend", blend.ShapeFirst, blend.ShapeSecond, blend.ShapeThird, blend.SkinFirst, blend.SkinSecond, blend.SkinThird, blend.ShapeMix, blend.SkinMix, blend.ThirdMix);
         public void SetPlayerHeadOverlay(Player player, int overlay, HeadOverlay data) => player.TriggerEvent("ragemp:setHeadOverlay", overlay, new object[] { data.Index, data.Opacity, data.Color, data.SecondaryColor });
-        public void SetPlayerIntoVehicle(Player player, NetHandle vehicle, int seat) => player.TriggerEvent("ragemp:putIntoVehicle", vehicle.Value, seat);
+        public void SetPlayerIntoVehicle(Player player, NetHandle vehicle, int seat)
+        {
+            var target = RAGE.Entities.Vehicles.Get(vehicle.Value);
+            player.TriggerEvent("ragemp:putIntoVehicle", target?.NetworkId ?? vehicle.Value, seat);
+        }
         public void ReloadResources(Player player) => player.TriggerEvent("ragemp:reloadResources");
     }
 
@@ -81,13 +115,24 @@ namespace GTANetworkAPI
 
     public sealed class ServerMethods
     {
+        public bool AutoRespawnAfterDeath { get; private set; } = true;
+        public bool AutoSpawnOnConnect { get; private set; } = true;
+        public string CommandErrorMessage { get; private set; } = "Command not found.";
+        public bool GlobalDefaultCommandMessages { get; private set; } = true;
+        public bool GlobalServerChat { get; private set; } = true;
+        public string ServerName { get; private set; } = string.Empty;
+
         public int GetMaxPlayers() => 1024;
-        public void SetAutoRespawnAfterDeath(bool value) { }
-        public void SetAutoSpawnOnConnect(bool value) { }
-        public void SetCommandErrorMessage(string value) { }
-        public void SetGlobalDefaultCommandMessages(bool value) { }
-        public void SetGlobalServerChat(bool value) { }
-        public void SetServerName(string value) { }
+        public void SetAutoRespawnAfterDeath(bool value)
+        {
+            AutoRespawnAfterDeath = value;
+            BridgeRuntime.Current.TriggerClientEventForAll("ragemp:setAutoRespawn", new object[] { value });
+        }
+        public void SetAutoSpawnOnConnect(bool value) => AutoSpawnOnConnect = value;
+        public void SetCommandErrorMessage(string value) => CommandErrorMessage = value ?? string.Empty;
+        public void SetGlobalDefaultCommandMessages(bool value) => GlobalDefaultCommandMessages = value;
+        public void SetGlobalServerChat(bool value) => GlobalServerChat = value;
+        public void SetServerName(string value) => ServerName = value ?? string.Empty;
     }
 
     public sealed class NotificationMethods

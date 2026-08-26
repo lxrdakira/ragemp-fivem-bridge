@@ -13,6 +13,7 @@ namespace RageMP.FiveM.Bridge.Host
 {
     internal sealed class CitizenFxRuntime : IBridgeRuntime
     {
+        private const string SharedDataPrefix = "rmp:";
         private readonly FiveMBridgeScript _owner;
         public CitizenFxRuntime(FiveMBridgeScript owner) => _owner = owner;
 
@@ -34,11 +35,11 @@ namespace RageMP.FiveM.Bridge.Host
         {
             if (entity is RagePlayer player)
             {
-                RequirePlayer(player).State.Set(key, value, true);
+                RequirePlayer(player).State.Set(SharedDataKey(key), value, true);
                 return;
             }
             var target = CfxEntity.FromNetworkId(entity.NetworkId != 0 ? entity.NetworkId : entity.Value);
-            target?.State.Set(key, value, true);
+            target?.State.Set(SharedDataKey(key), value, true);
         }
 
         public void ResetSharedData(RageEntity entity, string key) => SetSharedData(entity, key, null);
@@ -65,7 +66,9 @@ namespace RageMP.FiveM.Bridge.Host
             if (handle == 0) return new NetworkEntityReference();
             API.SetEntityRoutingBucket(handle, unchecked((int)entity.Dimension));
             ApplyEntityState(handle, entity);
-            return new NetworkEntityReference { Handle = handle, NetworkId = API.NetworkGetNetworkIdFromEntity(handle) };
+            var networkId = API.NetworkGetNetworkIdFromEntity(handle);
+            ApplySharedData(networkId, entity);
+            return new NetworkEntityReference { Handle = handle, NetworkId = networkId };
         }
 
         public void UpdateNetworkEntity(RageEntity entity)
@@ -96,6 +99,17 @@ namespace RageMP.FiveM.Bridge.Host
 
         public void SetPlayerDimension(RagePlayer player, uint dimension) =>
             API.SetPlayerRoutingBucket(RequirePlayer(player).Handle, unchecked((int)dimension));
+
+        private static void ApplySharedData(int networkId, RageEntity entity)
+        {
+            if (networkId == 0) return;
+            var target = CfxEntity.FromNetworkId(networkId);
+            if (target == null) return;
+            foreach (var pair in entity.GetAllSharedData())
+                target.State.Set(SharedDataKey(pair.Key), pair.Value, true);
+        }
+
+        private static string SharedDataKey(string key) => SharedDataPrefix + key;
 
         private CfxPlayer RequirePlayer(RagePlayer player) =>
             _owner.FindCitizenPlayer(player.Id) ?? throw new InvalidOperationException("FiveM player is no longer connected: " + player.Id);

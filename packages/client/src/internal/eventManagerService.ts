@@ -105,6 +105,8 @@ export function setupConsoleAndChat(mgr: EventManager): void {
     if (localPlayer) {
       mgr.call("playerCommand", localPlayer, commandName, ...args);
     }
+    const command = [commandName, ...args].filter((part) => part != null && String(part).length > 0).join(" ");
+    if (command) emitNet("ragemp:command", command);
   });
 
   on("chatMessage", (_source: any, _name: any, message: string) => {

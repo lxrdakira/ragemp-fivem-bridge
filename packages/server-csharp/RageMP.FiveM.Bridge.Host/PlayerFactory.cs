@@ -30,6 +30,7 @@ namespace RageMP.FiveM.Bridge.Host
         }
 
         public Player? Get(ushort id) => _players.TryGetValue(id, out var player) ? player : null;
+        public Player[] All => _players.Values.ToArray();
 
         private Player Create(ushort id, CitizenFX.Core.Player source)
         {

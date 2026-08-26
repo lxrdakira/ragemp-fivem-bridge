@@ -49,6 +49,18 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
   RegisterNuiCallbackType("ragemp:browserEvent");
   on("__cfx_nui:ragemp:browserEvent", (data: any, cb: (result: Record<string, never>) => void) => {
     const { event, args } = data;
+    if (event === "command") {
+      const command = String(args?.[0] ?? "").trim();
+      if (command) emitNet("ragemp:command", command);
+      cb({});
+      return;
+    }
+    if (event === "chatMessage") {
+      const message = String(args?.[0] ?? "");
+      if (message) emitNet("ragemp:chat:message", message);
+      cb({});
+      return;
+    }
     if (event && globalThis.mp?.events) {
       globalThis.mp.events.call(event, ...(args ?? []));
     }

@@ -119,24 +119,6 @@ export default function setup({ mp, plugin }: { mp: any; plugin: PluginContext }
         await mp.game.waitAsync(100);
       }
 
-      const [found, groundZ] = GetGroundZFor_3dCoord(
-        data.x,
-        data.y,
-        data.z + 100.0,
-        false,
-      );
-      if (found) {
-        SetEntityCoordsNoOffset(
-          newPed,
-          data.x,
-          data.y,
-          groundZ,
-          false,
-          false,
-          false,
-        );
-      }
-
       FreezeEntityPosition(newPed, false);
       DoScreenFadeIn(500);
       SetPlayerControl(PlayerId(), true, 0);

@@ -15,6 +15,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Server event dispatch", TestServerEvent),
     ("Command dispatch", TestCommand),
     ("NAPI client event runtime", TestRuntime),
+    ("NAPI server settings", TestServerSettings),
+    ("NAPI world state", TestWorldState),
     ("Player state synchronization", TestPlayerStateSynchronization),
     ("Network argument serialization", TestNetworkArguments),
     ("Network entity argument dispatch", TestNetworkEntityDispatch),
@@ -53,6 +55,11 @@ static Task TestEntityData()
     Equal("uuid", NAPI.Data.GetAllEntityData(player).Single());
     Equal(3u, player.GetSharedData<uint>("dimension"));
     Equal("dimension", runtime.SharedData[0].Key);
+    player.SetSharedData("dimension", null);
+    Equal(false, player.HasSharedData("dimension"));
+    Equal("dimension", runtime.ResetSharedDataKeys.Single().Key);
+    player.SetData<string?>("nullable", null);
+    Equal(false, player.HasData("nullable"));
     return Task.CompletedTask;
 }
 
@@ -114,6 +121,48 @@ static Task TestRuntime()
     NAPI.ClientEvent.TriggerClientEvent(NewPlayer(21), "hud.show", true);
     Equal("hud.show", runtime.ClientEvents[0].EventName);
     Equal(true, runtime.ClientEvents[0].Arguments[0]);
+    return Task.CompletedTask;
+}
+
+static Task TestServerSettings()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    NAPI.Server.SetAutoRespawnAfterDeath(false);
+    NAPI.Server.SetAutoSpawnOnConnect(false);
+    NAPI.Server.SetCommandErrorMessage("unknown");
+    NAPI.Server.SetGlobalDefaultCommandMessages(false);
+    NAPI.Server.SetGlobalServerChat(false);
+    NAPI.Server.SetServerName("Neptune FiveM");
+
+    Equal(false, NAPI.Server.AutoRespawnAfterDeath);
+    Equal(false, NAPI.Server.AutoSpawnOnConnect);
+    Equal("unknown", NAPI.Server.CommandErrorMessage);
+    Equal(false, NAPI.Server.GlobalDefaultCommandMessages);
+    Equal(false, NAPI.Server.GlobalServerChat);
+    Equal("Neptune FiveM", NAPI.Server.ServerName);
+    Equal("ragemp:setAutoRespawn", runtime.BroadcastEvents.Single().EventName);
+    Equal(false, runtime.BroadcastEvents.Single().Arguments[0]);
+    return Task.CompletedTask;
+}
+
+static Task TestWorldState()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    NAPI.World.SetWeather("RAIN");
+    NAPI.World.SetTime(21, 15, 30);
+    NAPI.World.RequestIpl("test_ipl");
+    NAPI.World.DeleteWorldProp(123u, new Vector3(1, 2, 3), 4f);
+
+    Equal("RAIN", NAPI.World.WeatherName);
+    Equal(21, NAPI.World.Hour);
+    Equal(15, NAPI.World.Minute);
+    Equal(30, NAPI.World.Second);
+    Equal("ragemp:setWeather", runtime.BroadcastEvents[0].EventName);
+    Equal("ragemp:setTime", runtime.BroadcastEvents[1].EventName);
+    Equal("ragemp:requestIpl", runtime.BroadcastEvents[2].EventName);
+    Equal("ragemp:deleteWorldProp", runtime.BroadcastEvents[3].EventName);
     return Task.CompletedTask;
 }
 
@@ -227,6 +276,9 @@ static Task TestNativeEntitySync()
     Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[3].EventName);
     Equal(650f, vehicle.BodyHealth);
     Equal(650f, vehicle.EngineHealth);
+    NAPI.Player.SetPlayerIntoVehicle(NewPlayer(28), vehicle.Handle, 1);
+    Equal("ragemp:putIntoVehicle", runtime.ClientEvents.Single().EventName);
+    Equal(vehicle.NetworkId, runtime.ClientEvents.Single().Arguments[0]);
     vehicle.Delete();
     Equal("ragemp:entity:destroy", runtime.BroadcastEvents[4].EventName);
     Equal(0, vehicle.NetworkId);
@@ -269,13 +321,14 @@ sealed class FakeRuntime : IBridgeRuntime
 {
     public List<(Player Player, string EventName, object[] Arguments)> ClientEvents { get; } = new();
     public List<(Entity Entity, string Key, object? Value)> SharedData { get; } = new();
+    public List<(Entity Entity, string Key)> ResetSharedDataKeys { get; } = new();
     public List<(string EventName, object[] Arguments)> BroadcastEvents { get; } = new();
     public void Schedule(Action action, long delayMilliseconds = 0) => action();
     public void TriggerClientEvent(Player player, string eventName, object[] arguments) => ClientEvents.Add((player, eventName, arguments));
     public void TriggerClientEventForAll(string eventName, object[] arguments) => BroadcastEvents.Add((eventName, arguments));
     public Task<object?> TriggerClientProcedure(Player player, string procedureName, object[] arguments) => Task.FromResult<object?>(null);
     public void SetSharedData(Entity entity, string key, object? value) => SharedData.Add((entity, key, value));
-    public void ResetSharedData(Entity entity, string key) { }
+    public void ResetSharedData(Entity entity, string key) => ResetSharedDataKeys.Add((entity, key));
     public void SendChatMessage(Player player, string message) { }
     public void Kick(Player player, string reason) { }
     public NetworkEntityReference CreateNetworkEntity(Entity entity) => new NetworkEntityReference { Handle = entity.Id, NetworkId = entity.Id + 1000 };

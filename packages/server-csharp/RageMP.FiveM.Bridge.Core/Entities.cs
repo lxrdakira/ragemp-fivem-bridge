@@ -41,15 +41,25 @@ namespace GTANetworkAPI
 
         public bool HasData(string key) => _data.ContainsKey(key);
         public T? GetData<T>(string key) => _data.TryGetValue(key, out var value) ? ConvertValue<T>(value) : default;
-        public void SetData<T>(string key, T value) => _data[key] = value;
+        public void SetData<T>(string key, T value)
+        {
+            if (value == null) _data.TryRemove(key, out _);
+            else _data[key] = value;
+        }
         internal string[] GetAllDataKeys() => _data.Keys.ToArray();
         public bool ResetData(string key) => _data.TryRemove(key, out _);
         public void ResetData() => _data.Clear();
 
         public bool HasSharedData(string key) => _sharedData.ContainsKey(key);
         public T? GetSharedData<T>(string key) => _sharedData.TryGetValue(key, out var value) ? ConvertValue<T>(value) : default;
+        internal IEnumerable<KeyValuePair<string, object?>> GetAllSharedData() => _sharedData.ToArray();
         public void SetSharedData(string key, object? value)
         {
+            if (value == null)
+            {
+                ResetSharedData(key);
+                return;
+            }
             _sharedData[key] = value;
             BridgeRuntime.Current.SetSharedData(this, key, value);
         }
