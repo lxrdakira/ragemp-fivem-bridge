@@ -14,6 +14,7 @@ fs.mkdirSync(outputRoot, { recursive: true });
 let copied = 0;
 let threadChecks = 0;
 let startupCaptures = 0;
+let runtimePathAdapters = 0;
 
 function portSource(source) {
   source = source.replace(
@@ -33,6 +34,13 @@ function portSource(source) {
   source = source.replace(
     /Thread\.CurrentThread\.Name\s*=\s*"Main"\s*;/g,
     'if (Thread.CurrentThread.Name == null) Thread.CurrentThread.Name = "Main";',
+  );
+  source = source.replace(
+    /Path\.Combine\(AppDomain\.CurrentDomain\.BaseDirectory, "\.\.", "\.\.", "client_packages", "audio_cache"\)/g,
+    () => {
+      runtimePathAdapters++;
+      return 'Path.Combine(Directory.GetCurrentDirectory(), "audio_cache")';
+    },
   );
   return source;
 }
@@ -57,4 +65,5 @@ function copyDirectory(relative = "") {
 copyDirectory();
 if (startupCaptures !== 1) throw new Error(`expected one Neptune main-thread capture, found ${startupCaptures}`);
 if (threadChecks === 0) throw new Error("no legacy Neptune main-thread checks were adapted");
-process.stdout.write(`[neptune-port] generated ${copied} C# sources; adapted ${threadChecks} main-thread checks\n`);
+if (runtimePathAdapters !== 2) throw new Error(`expected two Neptune audio-cache path adapters, found ${runtimePathAdapters}`);
+process.stdout.write(`[neptune-port] generated ${copied} C# sources; adapted ${threadChecks} main-thread checks and ${runtimePathAdapters} runtime paths\n`);
