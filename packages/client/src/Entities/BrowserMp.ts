@@ -1,17 +1,20 @@
 import { Entity } from "@ragemp-fivem-bridge/shared";
 import { removeFromPool } from "@ragemp-fivem-bridge/shared/internal";
 import { freeClientId } from "../internal/pools/clientPool";
-import { setBrowserFocus } from "../utils/nuiFocus";
+import { setBrowserFocus, setChatBrowserFocusTarget } from "../utils/nuiFocus";
 import {
   BrowserInternals,
   initBrowserInternals,
   applyBrowserPointerEvents,
+  applyAllBrowserPointerEvents,
+  unregisterBrowserPointerState,
   getChatBrowser,
   setChatBrowser,
   callBrowserProc,
   sendHeadlessPayload,
   reloadHeadlessBrowser,
   destroyHeadlessBrowser,
+  setHeadlessBrowserActive,
   setBrowserProcTimeout,
   getBrowserProcTimeout,
 } from "../internal/browserInternals";
@@ -26,6 +29,26 @@ function postFocusState(browserId: number, active: boolean): void {
       browserId,
     })
   );
+}
+
+let activeBrowserOrder = 1_000_000;
+const pendingAutoDeactivate = new WeakMap<BrowserMp, ReturnType<typeof setTimeout>>();
+
+function postOrderState(browserId: number, orderId: number): void {
+  if (typeof SendNuiMessage !== "function") return;
+  SendNuiMessage(
+    JSON.stringify({
+      type: "__ragemp:browser:orderId",
+      browserId,
+      orderId,
+    })
+  );
+}
+
+function nextActiveBrowserOrder(): number {
+  activeBrowserOrder++;
+  if (activeBrowserOrder >= 2_000_000_000) activeBrowserOrder = 1_000_001;
+  return activeBrowserOrder;
 }
 
 export class BrowserMp extends Entity {
@@ -49,15 +72,55 @@ export class BrowserMp extends Entity {
   set active(value: boolean) {
     const rec = BrowserInternals.get(this);
     rec.active = !!value;
-    if (rec.headless) return;
+    if (setHeadlessBrowserActive(this, rec.active)) return;
+    const pending = pendingAutoDeactivate.get(this);
+    if (pending !== undefined) {
+      clearTimeout(pending);
+      pendingAutoDeactivate.delete(this);
+    }
+    applyAllBrowserPointerEvents();
+    // Every visual browser is a full-screen iframe. A transparent legacy HUD
+    // created later can therefore sit above the active menu and consume all
+    // pointer input even when its own visible controls ignore mouse events.
+    // Promote the most recently activated browser, then restore its explicit
+    // order when it is deactivated.
+    postOrderState(this.id, rec.active ? nextActiveBrowserOrder() : rec.orderId);
     setBrowserFocus("browser:" + this.id, rec.active);
     postFocusState(this.id, rec.active);
   }
 
   execute(code: string): void {
-    if (BrowserInternals.get(this).destroyed) return;
+    const rec = BrowserInternals.get(this);
+    if (rec.destroyed) return;
     if (!sendHeadlessPayload(this, { type: "__ragemp:exec", code }))
       SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:exec", browserId: this.id, code }));
+
+    if (rec.headless) return;
+
+    // Neptune's shared Vue browser historically hid itself only through the
+    // router. In RAGE:MP that was harmless, but in FiveM its transparent
+    // full-screen iframe remains active and captures every subsequent click.
+    // Delay the compatibility deactivation by one turn so a hide immediately
+    // followed by setView (normal route switching) can cancel it.
+    const hidesFullBrowser = /router\s*&&[\s\S]*router\.close[\s\S]*setOpacity\s*&&[\s\S]*setOpacity\s*\(\s*0\s*\)/.test(code);
+    const showsFullBrowser = /router\s*&&[\s\S]*(?:setView|setOpacity\s*&&[\s\S]*setOpacity\s*\(\s*1\s*\))/.test(code);
+    const pending = pendingAutoDeactivate.get(this);
+
+    if (showsFullBrowser && pending !== undefined) {
+      clearTimeout(pending);
+      pendingAutoDeactivate.delete(this);
+    }
+
+    if (hidesFullBrowser && rec.active) {
+      if (pending !== undefined) clearTimeout(pending);
+      const timer = setTimeout(() => {
+        pendingAutoDeactivate.delete(this);
+        if (!BrowserInternals.get(this).destroyed && BrowserInternals.get(this).active) {
+          this.active = false;
+        }
+      }, 0);
+      pendingAutoDeactivate.set(this, timer);
+    }
   }
 
   executeCached(code: string): void {
@@ -94,13 +157,7 @@ export class BrowserMp extends Entity {
     rec.orderId = value | 0;
     if (rec.headless) return;
     if (rec.destroyed || typeof SendNuiMessage !== "function") return;
-    SendNuiMessage(
-      JSON.stringify({
-        type: "__ragemp:browser:orderId",
-        browserId: this.id,
-        orderId: rec.orderId,
-      })
-    );
+    postOrderState(this.id, rec.active ? nextActiveBrowserOrder() : rec.orderId);
   }
 
   // d.ts: markAsChat(): void — but implementation accepts optional flag not in d.ts
@@ -109,9 +166,15 @@ export class BrowserMp extends Entity {
     BrowserInternals.get(this).isChatBrowser = enabled;
     const pool = globalThis.mp?.browsers;
     if (pool) {
-      if (enabled) setChatBrowser(pool, this);
-      else if (getChatBrowser(pool) === this) setChatBrowser(pool, null);
+      if (enabled) {
+        setChatBrowser(pool, this);
+        setChatBrowserFocusTarget(this.id);
+      } else if (getChatBrowser(pool) === this) {
+        setChatBrowser(pool, null);
+        setChatBrowserFocusTarget(null);
+      }
     }
+    applyAllBrowserPointerEvents();
   }
 
   reload(ignoreCache: boolean): void {
@@ -133,6 +196,9 @@ export class BrowserMp extends Entity {
   override destroy(): void {
     const rec = BrowserInternals.get(this);
     if (rec.destroyed) return;
+    const pending = pendingAutoDeactivate.get(this);
+    if (pending !== undefined) clearTimeout(pending);
+    pendingAutoDeactivate.delete(this);
     rec.destroyed = true;
     const headless = rec.headless !== null;
     if (rec.active && !headless) {
@@ -141,7 +207,11 @@ export class BrowserMp extends Entity {
     }
     if (!headless) postFocusState(this.id, false);
     const pool = globalThis.mp?.browsers;
-    if (pool && getChatBrowser(pool) === this) setChatBrowser(pool, null);
+    if (pool && getChatBrowser(pool) === this) {
+      setChatBrowser(pool, null);
+      setChatBrowserFocusTarget(null);
+    }
+    unregisterBrowserPointerState(this);
     if (!destroyHeadlessBrowser(this))
       SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:destroy", browserId: this.id }));
     if (pool) {

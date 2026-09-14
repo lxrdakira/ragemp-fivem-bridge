@@ -1,4 +1,5 @@
 import { isCursorVisible } from "../utils/nuiFocus";
+import { registerNuiCallback } from "../internal/nuiCallback";
 
 const MODIFIER_KEY_ALIASES: Record<number, readonly number[]> = {
   16: [16, 160, 161],
@@ -24,21 +25,18 @@ export class KeyManager {
   _tick: number | null = null;
 
   constructor() {
-    if (typeof RegisterNuiCallbackType === "function") {
-      RegisterNuiCallbackType("ragemp:__keyEvent");
-      on(
-        "__cfx_nui:ragemp:__keyEvent",
-        (
-          data: { code?: number; down?: boolean },
-          cb: (result: Record<string, never>) => void,
-        ) => {
-          if (data && typeof data.code === "number") {
-            this._setNuiKey(data.code, !!data.down);
-          }
-          cb({});
-        },
-      );
-    }
+    registerNuiCallback(
+      "ragemp:__keyEvent",
+      (
+        data: { code?: number; down?: boolean },
+        cb: (result: Record<string, never>) => void,
+      ) => {
+        if (data && typeof data.code === "number") {
+          this._setNuiKey(data.code, !!data.down);
+        }
+        cb({});
+      },
+    );
   }
 
   _getKey(keyCode: number | string, isDown: boolean): string {

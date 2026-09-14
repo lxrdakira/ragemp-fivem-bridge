@@ -80,15 +80,14 @@ export class VehicleMp extends Entity {
       );
       return;
     }
-    SetEntityCoords(
+    SetEntityCoordsNoOffset(
       this.handle,
       value.x,
       value.y,
       value.z,
-      false,
-      false,
-      false,
-      false,
+      true,
+      true,
+      true,
     );
   }
 
@@ -462,15 +461,14 @@ export class VehicleMp extends Entity {
       this.repair();
       return;
     }
-    SetEntityCoords(
+    SetEntityCoordsNoOffset(
       this.handle,
       position.x,
       position.y,
       position.z,
-      false,
-      false,
-      false,
-      false,
+      true,
+      true,
+      true,
     );
     SetEntityHeading(this.handle, heading ?? 0);
     this.repair();

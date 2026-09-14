@@ -5,7 +5,7 @@ import { onWorldScan } from "../utils/worldScan";
 import { isVisibleHere } from "../utils/dimension";
 import { resolveNetEntity } from "../utils/netEntity";
 import { sanitizeArgsForNet } from "@ragemp-fivem-bridge/shared";
-import { resolveHandle } from "../internal/pools/streamingService";
+import { bindHandle, resolveHandle } from "../internal/pools/streamingService";
 import { playerByServerId } from "../internal/pools/playerPoolService";
 import { ClientEventManagerInternals } from "../internal/eventManagerInternals";
 import type { EventManager } from "../Events/EventManager";
@@ -20,7 +20,11 @@ export function handleEventAdded(mgr: EventManager, eventName: string): void {
   const rec = ClientEventManagerInternals.get(mgr);
   if (eventName === "render" && rec.renderTick === null) {
     rec.renderTick = setTick(() => {
-      mgr.call("render");
+      // Legacy RAGE render handlers assume that character/player state already
+      // exists. Running the full HUD/world render chain on the authorization
+      // scene can block the FiveM script scheduler before login completes.
+      if ((globalThis as any).loggedin !== true) return;
+      mgr.call("render", buildNametags());
     });
     return;
   }
@@ -112,6 +116,28 @@ export function setupConsoleAndChat(mgr: EventManager): void {
   on("chatMessage", (_source: any, _name: any, message: string) => {
     dispatchCancelable(mgr, "playerChat", message);
   });
+}
+
+function buildNametags(): any[] {
+  const mp = globalThis.mp;
+  const local = mp?.players?.local;
+  if (!local) return [];
+
+  const localPosition = GetEntityCoords(PlayerPedId(), true);
+  const nametags: any[] = [];
+  try {
+    mp.players.forEachInStreamRange((player: any) => {
+      if (!player || player === local || !player.handle || !DoesEntityExist(player.handle)) return;
+      const position = GetEntityCoords(player.handle, true);
+      const projected = GetScreenCoordFromWorldCoord(position[0], position[1], position[2] + 1.0);
+      if (!projected || !projected[0]) return;
+      const dx = position[0] - localPosition[0];
+      const dy = position[1] - localPosition[1];
+      const dz = position[2] - localPosition[2];
+      nametags.push([player, projected[1], projected[2], Math.sqrt(dx * dx + dy * dy + dz * dz)]);
+    });
+  } catch (_) {}
+  return nametags;
 }
 
 export function setupGameEvents(mgr: EventManager): void {
@@ -412,7 +438,24 @@ export function setupStateBags(mgr: EventManager): void {
       const netId = parseInt(bagName.slice(7), 10);
       const handle = safeGetEntityFromNetId(netId);
       if (handle) {
+        // This is the FiveM equivalent of RAGE's stable remoteId. Bind the
+        // authoritative bridge id directly to the local native handle as soon
+        // as its replicated state bag enters scope; no handle/net-id guessing.
+        if (realKey === "__bridgeRemoteId") {
+          const remoteId = Number(value);
+          if (Number.isInteger(remoteId) && remoteId > 0 && remoteId < 65535) {
+            const pool = IsEntityAVehicle(handle)
+              ? mp.vehicles
+              : IsEntityAPed(handle)
+                ? mp.peds
+                : IsEntityAnObject(handle)
+                  ? mp.objects
+                  : null;
+            if (pool) entity = bindHandle(pool, remoteId, handle, netId);
+          }
+        }
         entity =
+          entity ??
           mp.vehicles?.atHandle?.(handle) ??
           mp.peds?.atHandle?.(handle) ??
           mp.objects?.atHandle?.(handle) ??
@@ -606,8 +649,17 @@ export function tickLifecycle(mgr: EventManager, ped: number, localPlayer: any):
   const rec = ClientEventManagerInternals.get(mgr);
   const isDead = IsPedDeadOrDying(ped, true);
 
+  // Character selection changes the local player model. FiveM briefly marks
+  // the retired preview ped as dead during that swap; RAGE never exposed this
+  // as a gameplay death. Emitting it here triggers the server death flow before
+  // the authoritative ready event and can leave the replacement ped invisible.
+  if ((globalThis as any).loggedin !== true) {
+    rec.wasAlive = !isDead;
+    return;
+  }
+
   if (isDead && rec.wasAlive) {
-    const causeOfDeath = GetPedCauseOfDeath(ped);
+    const causeOfDeath = GetPedCauseOfDeath(ped) >>> 0;
     const killerEntity = GetPedSourceOfDeath(ped);
 
     let killerId = null;
@@ -664,6 +716,13 @@ export function tickVehicleState(mgr: EventManager, ped: number, localPlayer: an
       resolveHandle(globalThis.mp.vehicles, vehicleHandle) ?? null;
     mgr.call("playerEnterVehicle", enteredVehicle, seatIndex);
 
+    // Neptune blocks vehicle hotkeys while its custom seat transition is in
+    // progress. FiveM has now confirmed that the ped is seated, so keeping the
+    // legacy 30-second guard alive only suppresses engine/lock controls.
+    if ("VehicleSeatFix" in globalThis) {
+      (globalThis as any).VehicleSeatFix = 0;
+    }
+
     emitNet("ragemp:playerEnterVehicle", vehicleNetId, seatIndex);
   } else if (inVehicle && rec.wasInVehicle && currentVehicleHandle !== rec.lastVehicleHandle) {
     const previousHandle = rec.lastVehicleHandle;
@@ -685,6 +744,9 @@ export function tickVehicleState(mgr: EventManager, ped: number, localPlayer: an
     const currentNetId = safeGetNetworkId(currentVehicleHandle);
     const currentVehicle = resolveHandle(globalThis.mp.vehicles, currentVehicleHandle) ?? null;
     mgr.call("playerEnterVehicle", currentVehicle, seatIndex);
+    if ("VehicleSeatFix" in globalThis) {
+      (globalThis as any).VehicleSeatFix = 0;
+    }
     emitNet("ragemp:playerEnterVehicle", currentNetId, seatIndex);
   } else if (!inVehicle && rec.wasInVehicle) {
     const lastVehicle = rec.lastVehicleHandle;
@@ -892,6 +954,11 @@ export function tickModelAndHealth(mgr: EventManager, ped: number): void {
 
   const currentHealth = GetEntityHealth(ped);
   const currentArmour = GetPedArmour(ped);
+  if ((globalThis as any).loggedin !== true) {
+    rec.trackedHealth = currentHealth;
+    rec.trackedArmour = currentArmour;
+    return;
+  }
   if (rec.trackedHealth > 0) {
     const healthLoss = rec.trackedHealth - currentHealth;
     const armourLoss = rec.trackedArmour - currentArmour;
@@ -900,7 +967,7 @@ export function tickModelAndHealth(mgr: EventManager, ped: number): void {
       emitNet(
         "ragemp:csharp:playerDamage",
         rec.lastDamageAttackerServerId,
-        rec.lastDamageWeapon,
+        rec.lastDamageWeapon >>> 0,
         Math.max(0, healthLoss),
       );
       rec.lastDamageAttackerServerId = -1;

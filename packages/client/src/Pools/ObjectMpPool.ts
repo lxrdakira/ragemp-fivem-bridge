@@ -42,7 +42,9 @@ export class ObjectMpPool extends StreamingPool<ObjectMp> {
 
     const finish = (): void => {
       if (!StreamingInternals.get(this).byLocal.has(obj.id)) return;
-      const handle = CreateObject(modelHash, position.x, position.y, position.z, isNetwork, true, false);
+      // mp.objects.new uses the supplied entity-origin coordinates. CREATE_OBJECT
+      // adds the model radius to Z, so use the exact-position variant instead.
+      const handle = CreateObjectNoOffset(modelHash, position.x, position.y, position.z, isNetwork, true, false);
       if (!handle) {
         removeFromStreamingPool(this, obj.id);
         return;

@@ -217,12 +217,17 @@ namespace RageMP.FiveM.Bridge
                 if (concreteType.IsInstanceOfType(value)) return value;
                 if (typeof(Entity).IsAssignableFrom(concreteType) || concreteType == typeof(NetHandle))
                 {
-                    var entity = ResolveEntityReference(value);
+                    var entity = ResolveEntityReference(value, concreteType);
                     if (entity != null)
                     {
                         if (concreteType == typeof(NetHandle)) return entity.Handle;
                         if (concreteType.IsInstanceOfType(entity)) return entity;
                     }
+                    // Never ask Newtonsoft to construct an Entity. Entity subclasses
+                    // require a valid bridge NetHandle and deserializing a partial
+                    // client object (commonly just { id }) invokes that constructor
+                    // with null, which can terminate the Mono host.
+                    return null;
                 }
                 if (concreteType.IsEnum)
                 {
@@ -234,23 +239,35 @@ namespace RageMP.FiveM.Bridge
                 return JToken.FromObject(value).ToObject(concreteType);
             }
 
-            private static Entity? ResolveEntityReference(object value)
+            private static Entity? ResolveEntityReference(object value, Type targetType)
             {
                 JToken token;
                 try { token = value as JToken ?? JToken.FromObject(value); }
                 catch { return null; }
-                var type = token["__mpRef"]?.Value<string>();
-                if (string.IsNullOrWhiteSpace(type)) return null;
-                var id = token["id"]?.Value<int>() ?? -1;
-                var networkId = token["netId"]?.Value<int>() ?? 0;
+
+                // A few legacy bundles contain a second copy of the shared bridge
+                // package. Their entity fails `instanceof Entity` during client-side
+                // sanitizing and arrives as a plain object with an id. Infer its kind
+                // from the event parameter so the bridge id remains authoritative.
+                var type = token.Type == JTokenType.Object
+                    ? token["__mpRef"]?.Value<string>() ?? token["type"]?.Value<string>()
+                    : null;
+                if (string.IsNullOrWhiteSpace(type)) type = EntityTypeName(targetType);
+
+                var id = token.Type == JTokenType.Integer
+                    ? token.Value<int>()
+                    : token["id"]?.Value<int>() ?? token["remoteId"]?.Value<int>() ?? -1;
+                var networkId = token.Type == JTokenType.Object
+                    ? token["netId"]?.Value<int>() ?? token["networkId"]?.Value<int>() ?? 0
+                    : 0;
                 if (id < 0 && networkId <= 0) return null;
 
                 switch (type!.ToLowerInvariant())
                 {
                     case "player": return RAGE.Entities.Players.Get(checked((ushort)(networkId > 0 ? networkId : id)));
-                    case "vehicle": return (networkId > 0 ? RAGE.Entities.Vehicles.GetByNetworkId(networkId) : null) ?? GetById(RAGE.Entities.Vehicles, id);
-                    case "object": return (networkId > 0 ? RAGE.Entities.Objects.GetByNetworkId(networkId) : null) ?? GetById(RAGE.Entities.Objects, id);
-                    case "ped": return (networkId > 0 ? RAGE.Entities.Peds.GetByNetworkId(networkId) : null) ?? GetById(RAGE.Entities.Peds, id);
+                    case "vehicle": return EntityNetworkSync.ResolveNativeReference("vehicle", networkId, id);
+                    case "object": return EntityNetworkSync.ResolveNativeReference("object", networkId, id);
+                    case "ped": return EntityNetworkSync.ResolveNativeReference("ped", networkId, id);
                     case "colshape": return GetById(RAGE.Entities.Colshapes, id);
                     case "checkpoint": return GetById(RAGE.Entities.Checkpoints, id);
                     case "blip": return GetById(RAGE.Entities.Blips, id);
@@ -261,6 +278,23 @@ namespace RageMP.FiveM.Bridge
                     case "dummy": return GetById(RAGE.Entities.DummyEntities, id);
                     default: return null;
                 }
+            }
+
+            private static string? EntityTypeName(Type targetType)
+            {
+                if (targetType == typeof(NetHandle)) return null;
+                if (typeof(Player).IsAssignableFrom(targetType)) return "player";
+                if (typeof(Vehicle).IsAssignableFrom(targetType)) return "vehicle";
+                if (typeof(GTANetworkAPI.Object).IsAssignableFrom(targetType)) return "object";
+                if (typeof(Ped).IsAssignableFrom(targetType)) return "ped";
+                if (typeof(ColShape).IsAssignableFrom(targetType)) return "colshape";
+                if (typeof(Checkpoint).IsAssignableFrom(targetType)) return "checkpoint";
+                if (typeof(Blip).IsAssignableFrom(targetType)) return "blip";
+                if (typeof(Marker).IsAssignableFrom(targetType)) return "marker";
+                if (typeof(TextLabel).IsAssignableFrom(targetType)) return "textlabel";
+                if (typeof(Pickup).IsAssignableFrom(targetType)) return "pickup";
+                if (typeof(DummyEntity).IsAssignableFrom(targetType)) return "dummy";
+                return null;
             }
 
             private static T? GetById<T>(RAGE.EntityPool<T> pool, int id) where T : Entity =>

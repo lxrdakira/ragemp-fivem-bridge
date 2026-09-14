@@ -37,14 +37,20 @@ export function installErrorCapture(forward: ForwardFn, getId: () => string): vo
     (e) => {
       const t = e.target as (EventTarget & { tagName?: string; src?: string; href?: string }) | null;
       if (t && t !== window && t.tagName) {
+        let resourceUrl = t.src || t.href || "";
+        if (!resourceUrl && t instanceof HTMLElement) {
+          const importMatch = /@import\s+(?:url\()?['\"]?([^'\")\s;]+)/i.exec(t.textContent || "");
+          resourceUrl = importMatch?.[1] || "";
+        }
         report({
           kind: "resource",
           message:
             "Failed to load " +
             String(t.tagName).toLowerCase() +
             ": " +
-            (t.src || t.href || "(unknown)"),
+            (resourceUrl || "(unknown)"),
           tag: t.tagName,
+          outerHTML: t instanceof HTMLElement ? t.outerHTML.slice(0, 1000) : undefined,
         });
         return;
       }

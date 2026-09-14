@@ -32,6 +32,11 @@ export function applySharedDataValue(entity: any, key: string, value: any): void
   }
 }
 
+export function notifySharedDataValue(entity: any, key: string, value: any): void {
+  if (sharedDataChangeSink) sharedDataChangeSink(entity, key, value);
+  else applySharedDataValue(entity, key, value);
+}
+
 export function hydrateSharedData(entity: any, stateBag: any, notify = true): void {
   if (!entity || !stateBag) return;
   try {

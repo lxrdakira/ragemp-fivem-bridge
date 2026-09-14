@@ -37,7 +37,7 @@ game 'gta5'
 
 name 'ragemp-fivem-bridge'
 description 'Standalone RAGE:MP -> FiveM bridge. Exposes mp.* to other resources via @-imports.'
-version '1.0.0'
+version '1.0.1'
 
 ragemp_bridge 'library'
 

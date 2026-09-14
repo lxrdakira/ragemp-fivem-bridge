@@ -24,7 +24,7 @@ export class ObjectMp extends Entity {
   }
 
   override set position(value: Vector3) {
-    SetEntityCoords(this.handle, value.x, value.y, value.z, false, false, false, false);
+    SetEntityCoordsNoOffset(this.handle, value.x, value.y, value.z, true, true, true);
   }
 
   get rotation(): Vector3 {

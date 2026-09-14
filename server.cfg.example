@@ -16,6 +16,11 @@ setr sv_mumble true
 # The bridge must start before the original client/CEF resource.
 ensure ragemp-fivem-bridge
 
+# The compiled Svelte bundle resolves its legacy /src/views image URLs through
+# these two split resources. Keep both before the main UI resource.
+ensure neptuneevo-ui-assets-common
+ensure neptuneevo-ui-assets-player
+
 # Use this local overlay while both resources remain in this workspace.
 ensure neptuneevo-ui-dev
 

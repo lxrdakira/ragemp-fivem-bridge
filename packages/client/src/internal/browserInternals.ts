@@ -1,6 +1,7 @@
 import { defineInternals } from "@ragemp-fivem-bridge/shared/internal";
 import type { BrowserMp } from "../Entities/BrowserMp";
 import type { BrowserMpPool } from "../Pools/BrowserMpPool";
+import { registerNuiCallback } from "./nuiCallback";
 
 export interface BrowserInternalsRec {
   url: string;
@@ -20,14 +21,21 @@ export interface HeadlessBrowserState {
   resolvedUrl: string;
   textureDict: string;
   textureName: string;
+  width: number;
+  height: number;
+  surfaceGeneration: number;
   readyTimer: ReturnType<typeof setInterval> | null;
+  activationTimer: ReturnType<typeof setTimeout> | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
   pendingPayloads: Record<string, unknown>[];
+  replayPayloads: Record<string, unknown>[];
 }
 
 export const BrowserInternals = defineInternals<BrowserInternalsRec>();
+const visualBrowsers = new Set<BrowserMp>();
 
 export function initBrowserInternals(browser: BrowserMp, url: string): BrowserInternalsRec {
-  return BrowserInternals.init(browser, {
+  const rec = BrowserInternals.init(browser, {
     url,
     active: false,
     isChatBrowser: false,
@@ -39,11 +47,32 @@ export function initBrowserInternals(browser: BrowserMp, url: string): BrowserIn
     cachedExec: [],
     headless: null,
   });
+  visualBrowsers.add(browser);
+  return rec;
+}
+
+export function unregisterBrowserPointerState(browser: BrowserMp): void {
+  visualBrowsers.delete(browser);
+  applyAllBrowserPointerEvents();
+}
+
+function hasActiveVisualBrowserExcept(browser: BrowserMp): boolean {
+  for (const candidate of visualBrowsers) {
+    if (candidate === browser) continue;
+    const rec = BrowserInternals.get(candidate);
+    if (!rec.destroyed && !rec.headless && rec.active) return true;
+  }
+  return false;
 }
 
 export function browserDomReady(browser: BrowserMp): void {
   const rec = BrowserInternals.get(browser);
   rec.domReady = true;
+  if (rec.headless?.dui && rec.headless.replayPayloads.length) {
+    for (const payload of rec.headless.replayPayloads) {
+      SendDuiMessage(rec.headless.dui, JSON.stringify({ __ragempForward: true, inner: payload }));
+    }
+  }
   if (rec.headless?.pendingPayloads.length) {
     for (const payload of rec.headless.pendingPayloads.splice(0))
       sendHeadlessPayload(browser, payload);
@@ -60,25 +89,149 @@ export function applyBrowserPointerEvents(browser: BrowserMp): void {
     JSON.stringify({
       type: "__ragemp:browser:pointerEvents",
       browserId: browser.id,
-      enabled: rec.inputEnabled && rec.mouseInputEnabled,
+      // A RAGE:MP browser that is neither active nor the main/chat browser
+      // must not intercept mouse input. Every FiveM browser is represented by
+      // a full-screen iframe, so leaving pointer events enabled on transparent
+      // sound/helper browsers creates an invisible click-blocking layer.
+      enabled:
+        rec.inputEnabled &&
+        rec.mouseInputEnabled &&
+        (rec.active || (rec.isChatBrowser && !hasActiveVisualBrowserExcept(browser))),
     })
   );
+}
+
+export function applyAllBrowserPointerEvents(): void {
+  for (const browser of visualBrowsers) applyBrowserPointerEvents(browser);
 }
 
 export function setHeadlessBrowser(browser: BrowserMp, state: HeadlessBrowserState): void {
   BrowserInternals.get(browser).headless = state;
 }
 
+// Creating every RAGE:MP headless browser eagerly is prohibitively expensive in
+// FiveM: each one owns a Chromium DUI renderer and a GPU command buffer. Neptune
+// registers many world markers at login and marks unused ones inactive on the
+// following render tick. Debounce allocation so those invisible markers never
+// create a DUI in the first place, and retire surfaces that stay hidden.
+const HEADLESS_ACTIVATION_DELAY_MS = 200;
+const HEADLESS_IDLE_DESTROY_MS = 30_000;
+const HEADLESS_CREATE_SPACING_MS = 100;
+let nextHeadlessCreateAt = 0;
+
+function clearHeadlessActivationTimer(state: HeadlessBrowserState): void {
+  if (state.activationTimer === null) return;
+  clearTimeout(state.activationTimer);
+  state.activationTimer = null;
+}
+
+function clearHeadlessIdleTimer(state: HeadlessBrowserState): void {
+  if (state.idleTimer === null) return;
+  clearTimeout(state.idleTimer);
+  state.idleTimer = null;
+}
+
+function destroyHeadlessSurface(browser: BrowserMp, clearPayloads: boolean): void {
+  const rec = BrowserInternals.get(browser);
+  const state = rec.headless;
+  if (!state) return;
+  if (state.readyTimer !== null) clearInterval(state.readyTimer);
+  state.readyTimer = null;
+  if (state.dui) DestroyDui(state.dui);
+  state.dui = 0;
+  rec.domReady = false;
+  if (clearPayloads) state.pendingPayloads.length = 0;
+}
+
+function createHeadlessSurface(browser: BrowserMp): void {
+  const rec = BrowserInternals.get(browser);
+  const state = rec.headless;
+  if (!state || rec.destroyed || !rec.active || state.dui) return;
+
+  const now = Date.now();
+  if (now < nextHeadlessCreateAt) {
+    state.activationTimer = setTimeout(() => {
+      state.activationTimer = null;
+      createHeadlessSurface(browser);
+    }, nextHeadlessCreateAt - now);
+    return;
+  }
+  nextHeadlessCreateAt = now + HEADLESS_CREATE_SPACING_MS;
+
+  try {
+    const dui = CreateDui(state.resolvedUrl, state.width, state.height);
+    if (!dui) throw new Error("CreateDui returned an invalid handle");
+
+    state.surfaceGeneration++;
+    state.textureDict = `ragemp_dui_${browser.id}_${state.surfaceGeneration}`;
+    browser.headlessTextureDict = state.textureDict;
+    browser.headlessTextureName = state.textureName;
+
+    const runtimeTxd = CreateRuntimeTxd(state.textureDict);
+    CreateRuntimeTextureFromDuiHandle(runtimeTxd, state.textureName, GetDuiHandle(dui));
+    state.dui = dui;
+    rec.domReady = false;
+    beginHeadlessReadyHandshake(browser);
+  } catch (error) {
+    state.dui = 0;
+    console.error(`[ragemp:headless] Failed to create browser ${browser.id}: ${String(error)}`);
+    globalThis.mp?.events?.call("browserLoadingFailed", browser);
+    if (!rec.destroyed && rec.active) {
+      state.activationTimer = setTimeout(() => {
+        state.activationTimer = null;
+        createHeadlessSurface(browser);
+      }, 1000);
+    }
+  }
+}
+
+export function setHeadlessBrowserActive(browser: BrowserMp, active: boolean): boolean {
+  const rec = BrowserInternals.get(browser);
+  const state = rec.headless;
+  if (!state) return false;
+
+  if (active) {
+    // Marker render loops assign `active = true` every frame. Re-arming the
+    // debounce timer on every assignment means that its callback can never
+    // fire, so no DUI/3D CEF surface is ever created. Keep an already pending
+    // activation intact and only cancel a pending idle teardown.
+    clearHeadlessIdleTimer(state);
+    if (state.dui || state.activationTimer !== null) return true;
+    state.activationTimer = setTimeout(() => {
+      state.activationTimer = null;
+      createHeadlessSurface(browser);
+    }, HEADLESS_ACTIVATION_DELAY_MS);
+    return true;
+  }
+
+  clearHeadlessActivationTimer(state);
+  if (!state.dui || state.idleTimer !== null) return true;
+  state.idleTimer = setTimeout(() => {
+    state.idleTimer = null;
+    const current = BrowserInternals.get(browser);
+    if (!current.destroyed && !current.active) destroyHeadlessSurface(browser, false);
+  }, HEADLESS_IDLE_DESTROY_MS);
+  return true;
+}
+
 export function sendHeadlessPayload(browser: BrowserMp, payload: Record<string, unknown>): boolean {
   const rec = BrowserInternals.get(browser);
   const state = rec.headless;
-  if (!state || !state.dui) return false;
-  if (!rec.domReady && payload.type !== "__ragemp:assignId") {
+  if (!state) return false;
+  if ((!state.dui || !rec.domReady) && payload.type !== "__ragemp:assignId") {
     if (state.pendingPayloads.length >= 4096) state.pendingPayloads.shift();
     state.pendingPayloads.push(payload);
     return true;
   }
+  if (!state.dui) return true;
   SendDuiMessage(state.dui, JSON.stringify({ __ragempForward: true, inner: payload }));
+  // DUI pages lose their JavaScript state when an inactive surface is retired.
+  // Browser events/exec calls are UI state updates, so replay a bounded history
+  // after the next domReady. RPC requests are deliberately excluded.
+  if (payload.type === "__ragemp:exec" || typeof payload.event === "string") {
+    if (state.replayPayloads.length >= 128) state.replayPayloads.shift();
+    state.replayPayloads.push(payload);
+  }
   return true;
 }
 
@@ -112,7 +265,11 @@ export function beginHeadlessReadyHandshake(browser: BrowserMp): void {
 export function reloadHeadlessBrowser(browser: BrowserMp): boolean {
   const rec = BrowserInternals.get(browser);
   const state = rec.headless;
-  if (!state || !state.dui) return false;
+  if (!state) return false;
+  if (!state.dui) {
+    if (rec.active) setHeadlessBrowserActive(browser, true);
+    return true;
+  }
   rec.domReady = false;
   SetDuiUrl(state.dui, state.resolvedUrl);
   beginHeadlessReadyHandshake(browser);
@@ -122,11 +279,10 @@ export function reloadHeadlessBrowser(browser: BrowserMp): boolean {
 export function destroyHeadlessBrowser(browser: BrowserMp): boolean {
   const state = BrowserInternals.get(browser).headless;
   if (!state) return false;
-  if (state.readyTimer !== null) clearInterval(state.readyTimer);
-  if (state.dui) DestroyDui(state.dui);
-  state.readyTimer = null;
-  state.pendingPayloads.length = 0;
-  state.dui = 0;
+  clearHeadlessActivationTimer(state);
+  clearHeadlessIdleTimer(state);
+  destroyHeadlessSurface(browser, true);
+  state.replayPayloads.length = 0;
   return true;
 }
 
@@ -185,11 +341,7 @@ let procChannelRegistered = false;
 
 export function registerBrowserProcChannel(): void {
   if (procChannelRegistered) return;
-  if (typeof RegisterNuiCallbackType !== "function") return;
-  procChannelRegistered = true;
-
-  RegisterNuiCallbackType("ragemp:cefProcResult");
-  on("__cfx_nui:ragemp:cefProcResult", (data: any, cb: (result: any) => void) => {
+  if (!registerNuiCallback("ragemp:cefProcResult", (data: any, cb: (result: any) => void) => {
     const pending = pendingProcs.get(data.requestId);
     if (pending) {
       pendingProcs.delete(data.requestId);
@@ -197,10 +349,10 @@ export function registerBrowserProcChannel(): void {
       else pending.resolve(data.result);
     }
     cb({});
-  });
+  })) return;
+  procChannelRegistered = true;
 
-  RegisterNuiCallbackType("ragemp:cefProc");
-  on("__cfx_nui:ragemp:cefProc", (data: any, cb: (result: any) => void) => {
+  registerNuiCallback("ragemp:cefProc", (data: any, cb: (result: any) => void) => {
     const { procName, requestId, args, browserId } = data;
     const browser = globalThis.mp?.browsers?.at(Number(browserId));
     const sendResult = (payload: Record<string, unknown>) => {

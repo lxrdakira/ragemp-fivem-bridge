@@ -195,5 +195,47 @@ namespace GTANetworkAPI
     public sealed class ObjectMethods { public RageObject CreateObject(uint model, Vector3 position, Vector3 rotation, byte alpha = 255, uint dimension = 0) { var value = RAGE.Entities.Objects.Create(); value.SetModelInternal(model); value.Position = position; value.Rotation = rotation; value.Transparency = alpha; value.Dimension = dimension; EntityNetworkSync.Publish(value); return value; } public RageObject CreateObject(int model, Vector3 position, Vector3 rotation, byte alpha = 255, uint dimension = 0) => CreateObject(unchecked((uint)model), position, rotation, alpha, dimension); }
     public sealed class BlipMethods { public Blip CreateBlip(uint sprite, Vector3 position, float scale, byte color, string name, byte alpha = 255, float drawDistance = 0, bool shortRange = false, short rotation = 0, uint dimension = 0) { var value = RAGE.Entities.Blips.Create(); value.Sprite = sprite; value.Position = position; value.Scale = scale; value.Color = color; value.Name = name; value.Transparency = alpha; value.DrawDistance = drawDistance; value.ShortRange = shortRange; value.BlipRotation = rotation; value.Dimension = dimension; EntityNetworkSync.Publish(value); return value; } public Blip CreateBlip(int sprite, Vector3 position, float scale, byte color, string name, byte alpha = 255, float drawDistance = 0, bool shortRange = false, short rotation = 0, uint dimension = 0) => CreateBlip(unchecked((uint)sprite), position, scale, color, name, alpha, drawDistance, shortRange, rotation, dimension); public Blip CreateBlip(int sprite, Vector3 position, float scale, byte color, byte alpha = 255, float drawDistance = 0, bool shortRange = false, short rotation = 0, uint dimension = 0) => CreateBlip(sprite, position, scale, color, string.Empty, alpha, drawDistance, shortRange, rotation, dimension); public Blip CreateBlip(Vector3 position, float scale, uint dimension = 0) => CreateBlip(0u, position, scale, 0, string.Empty, 255, 0, false, 0, dimension); public Blip CreateBlip(Vector3 position, uint dimension = 0) => CreateBlip(position, 1f, dimension); public Blip CreateBlip(NetHandle attachedTo) => CreateBlip(RAGE.Entities.Resolve(attachedTo)?.Position ?? new Vector3()); public void SetBlipColor(NetHandle handle, int color) { var value = RAGE.Entities.Blips.Get(handle.Value); if (value != null) value.Color = color; } public void SetBlipTransparency(NetHandle handle, int alpha) { var value = RAGE.Entities.Blips.Get(handle.Value); if (value != null) value.Transparency = alpha; } }
     public sealed class ColShapeMethods { private static ColShape Create(string type, Vector3 position, float radius, float width, float depth, float height, uint dimension) { var value = RAGE.Entities.Colshapes.Create(); value.ShapeType = type; value.Position = position; value.Radius = radius; value.Width = width; value.Depth = depth; value.Height = height; value.Dimension = dimension; EntityNetworkSync.Publish(value); return value; } public ColShape CreateSphereColShape(Vector3 position, float radius, uint dimension = 0) => Create("sphere", position, radius, 0, 0, 0, dimension); public ColShape CreateCylinderColShape(Vector3 position, float radius, float height, uint dimension = 0) => Create("tube", position, radius, 0, 0, height, dimension); public ColShape CreatCircleColShape(float x, float y, float radius, uint dimension = 0) => Create("circle", new Vector3(x, y, 0), radius, 0, 0, 0, dimension); public ColShape Create2DColShape(float x, float y, float width, float height, uint dimension = 0) => Create("rectangle", new Vector3(x, y, 0), 0, width, 0, height, dimension); public ColShape Create3DColShape(Vector3 start, Vector3 end, uint dimension = 0) => Create("cuboid", start, 0, Math.Abs(end.X - start.X), Math.Abs(end.Y - start.Y), Math.Abs(end.Z - start.Z), dimension); public bool IsPointWithinColshape(ColShape shape, Vector3 point) => shape.IsPointWithin(point); }
-    public sealed class PedMethods { public Ped CreatePed(PedHash model, Vector3 position, float heading, uint dimension = 0) => CreatePed((uint)model, position, heading, dimension); public Ped CreatePed(uint model, Vector3 position, float heading, uint dimension = 0) => CreatePed(model, position, heading, false, false, false, false, dimension); public Ped CreatePed(uint model, Vector3 position, float heading, bool dynamic = false, bool invincible = false, bool frozen = false, bool controlLocked = false, uint dimension = 0) { var value = RAGE.Entities.Peds.Create(); value.SetModelInternal(model); value.Position = position; value.Rotation = new Vector3(0, 0, heading); value.Dynamic = dynamic; value.Invincible = invincible; value.Frozen = frozen; value.ControlLocked = controlLocked; value.Dimension = dimension; EntityNetworkSync.Publish(value); return value; } }
+    public sealed class PedMethods
+    {
+        private const int PedPublishBaseDelayMilliseconds = 750;
+        private const int PedPublishSpreadSlots = 100;
+        private const int PedPublishSpreadStepMilliseconds = 15;
+        private static int _pedPublishSequence;
+
+        public Ped CreatePed(PedHash model, Vector3 position, float heading, uint dimension = 0) =>
+            CreatePed((uint)model, position, heading, dimension);
+
+        public Ped CreatePed(uint model, Vector3 position, float heading, uint dimension = 0) =>
+            CreatePed(model, position, heading, false, false, false, false, dimension);
+
+        public Ped CreatePed(uint model, Vector3 position, float heading, bool dynamic = false, bool invincible = false, bool frozen = false, bool controlLocked = false, uint dimension = 0)
+        {
+            var value = RAGE.Entities.Peds.Create();
+            value.SetModelInternal(model);
+            value.Position = position;
+            value.Rotation = new Vector3(0, 0, heading);
+            value.Dynamic = dynamic;
+            value.Invincible = invincible;
+            value.Frozen = frozen;
+            value.ControlLocked = controlLocked;
+            value.Dimension = dimension;
+
+            // BestMP b3788 can reject CREATE_PED while the resource graph and
+            // OneSync world are still being initialized. Neptune creates more
+            // than five hundred static quest NPCs from OnResourceStart, so a
+            // synchronous burst permanently removed a random part of the ped
+            // pool. Keep the stable RAGE wrapper available to gameplay code and
+            // publish the native entities shortly after startup in small waves.
+            var sequence = System.Threading.Interlocked.Increment(ref _pedPublishSequence);
+            var delay = PedPublishBaseDelayMilliseconds +
+                (sequence % PedPublishSpreadSlots) * PedPublishSpreadStepMilliseconds;
+            BridgeRuntime.Current.Schedule(() =>
+            {
+                if (value.IsInstanceAlive && !value.NetworkPublished)
+                    EntityNetworkSync.Publish(value);
+            }, delay);
+
+            return value;
+        }
+    }
 }

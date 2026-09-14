@@ -147,7 +147,8 @@ export interface VehicleMp extends EntityMp {
   getMod(type: number): number;
   setMod(type: number, index: number): void;
   getExtra(extraId: number): boolean;
-  setExtra(extraId: number, state: boolean): void;
+  /** Client API: false/0 enables the extra, true/1 disables it. */
+  setExtra(extraId: number, disabled: boolean | number): void;
   repair(): void;
 
   getHandling(field: string): number | Vector3;

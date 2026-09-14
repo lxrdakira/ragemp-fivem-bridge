@@ -2,6 +2,7 @@ namespace GTANetworkAPI
 {
     public class ColShape : Entity
     {
+        private const float RageGroundZCompensation = 1.12f;
         public delegate void ColShapeEvent(ColShape shape, Player player);
         public ColShape(NetHandle handle) : base(handle) { }
         public event ColShapeEvent? OnEntityEnterColShape;
@@ -12,6 +13,16 @@ namespace GTANetworkAPI
         public float Width { get; internal set; }
         public float Depth { get; internal set; }
         public virtual bool IsPointWithin(Vector3 point)
+        {
+            if (IsPointWithinRaw(point)) return true;
+            // The migrated dataset contains both raw RAGE player-origin Z and
+            // already ground-corrected Z. Match the client bridge by accepting
+            // either vertical convention without widening X/Y interaction.
+            return IsPointWithinRaw(new Vector3(point.X, point.Y, point.Z - RageGroundZCompensation))
+                || IsPointWithinRaw(new Vector3(point.X, point.Y, point.Z + RageGroundZCompensation));
+        }
+
+        private bool IsPointWithinRaw(Vector3 point)
         {
             var dx = point.X - Position.X;
             var dy = point.Y - Position.Y;

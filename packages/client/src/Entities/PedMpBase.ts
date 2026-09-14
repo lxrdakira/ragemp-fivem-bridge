@@ -2,8 +2,11 @@ import { gtaPedHealthToRage, rageHealthToGtaPed } from "@ragemp-fivem-bridge/sha
 import { EntityMpBase } from "./EntityMpBase";
 import { toVec3 } from "../utils/vec";
 import { Vector3 } from "@ragemp-fivem-bridge/shared";
+import { setCompatibleComponentVariation, setCompatiblePropIndex } from "../utils/clothingCompatibility";
 
 export class PedMpBase extends EntityMpBase {
+  private pendingAnimatedDriverEntry: { vehicle: number; startedAt: number } | null = null;
+
   constructor(token: symbol, id: number, type: string, handle: number | null = null) {
     super(token, id, type, handle);
   }
@@ -70,6 +73,7 @@ export class PedMpBase extends EntityMpBase {
   getExtractedDisplacement(worldSpace: boolean): Vector3 { return toVec3(GetPedExtractedDisplacement(this.handle, !!worldSpace) as any); }
   getGroupIndex(): number { return GetPedGroupIndex(this.handle); }
   getHeadOverlayValue(overlayID: number): number { return GetPedHeadOverlayValue(this.handle, overlayID); }
+  getEyeColor(): number { return GetPedEyeColor(this.handle); }
   getIsTaskActive(taskNumber: number): boolean { return GetIsTaskActive(this.handle, taskNumber); }
   getJackTarget(): number { return GetJackTarget(this.handle); }
   getLastDamageBone(): number { const [, bone] = GetPedLastDamageBone(this.handle); return bone; }
@@ -100,6 +104,7 @@ export class PedMpBase extends EntityMpBase {
   getScriptTaskStatus(taskHash: number): number { return GetScriptTaskStatus(this.handle, taskHash); }
   getSeatIsTryingToEnter(): number { return GetSeatPedIsTryingToEnter(this.handle); }
   getSequenceProgress(): number { return GetSequenceProgress(this.handle); }
+  getStealthMovement(): boolean { return GetPedStealthMovement(this.handle); }
   getsJacker(): number { return GetPedsJacker(this.handle); }
   getSourceOfDeath(): number { return GetPedSourceOfDeath(this.handle); }
   getTextureVariation(componentId: number): number { return GetPedTextureVariation(this.handle, componentId); }
@@ -224,14 +229,14 @@ export class PedMpBase extends EntityMpBase {
   clearProp(propId: number): void { ClearPedProp(this.handle, propId); }
   isPropValid(componentId: number, drawableId: number, textureId: number): boolean { return IsPedPropValid(this.handle, componentId, drawableId, textureId); }
   knockOffProp(damaged: boolean, hats: boolean, glasses: boolean, helmets: boolean): void { KnockOffPedProp(this.handle, !!damaged, !!hats, !!glasses, !!helmets); }
-  setComponentVariation(componentId: number, drawableId: number, textureId: number, paletteId: number): void { SetPedComponentVariation(this.handle, componentId, drawableId, textureId, paletteId ?? 0); }
+  setComponentVariation(componentId: number, drawableId: number, textureId: number, paletteId: number): void { setCompatibleComponentVariation(this.handle, componentId, drawableId, textureId, paletteId ?? 0); }
   setDefaultComponentVariation(): void { SetPedDefaultComponentVariation(this.handle); }
   setEyeColor(index: number): void { SetPedEyeColor(this.handle, index); }
   setFaceFeature(index: number, scale: number): void { SetPedFaceFeature(this.handle, index, scale); }
   setHairColor(colorID: number, highlightColorID: number): void { SetPedHairTint(this.handle, colorID, highlightColorID ?? 0); }
   setHeadOverlay(overlayID: number, index: number, opacity: number, firstColor: number, secondColor: number): void { SetPedHeadOverlay(this.handle, overlayID, index, opacity ?? 1.0); if (firstColor !== undefined) SetPedHeadOverlayColor(this.handle, overlayID, 1, firstColor, secondColor ?? 0); }
   setHeadOverlayColor(overlayID: number, colorType: number, colorID: number, secondColorID: number): void { SetPedHeadOverlayColor(this.handle, overlayID, colorType, colorID, secondColorID ?? 0); }
-  setPropIndex(componentId: number, drawableId: number, TextureId: number, attach: boolean): void { SetPedPropIndex(this.handle, componentId, drawableId, TextureId, attach ?? true); }
+  setPropIndex(componentId: number, drawableId: number, TextureId: number, attach: boolean): void { setCompatiblePropIndex(this.handle, componentId, drawableId, TextureId, attach ?? true); }
   setRandomComponentVariation(p1: boolean): void { SetPedRandomComponentVariation(this.handle, (p1 ?? 0) as number); }
   setRandomProps(): void { SetPedRandomProps(this.handle); }
   setHeadBlendData(shapeFirst: number, shapeSecond: number, shapeThird: number, skinFirst: number, skinSecond: number, skinThird: number, shapeMix: number, skinMix: number, thirdMix: number, isParent: boolean): void {
@@ -462,7 +467,24 @@ export class PedMpBase extends EntityMpBase {
   taskCombatHatedTargetsAround(radius: number, p2: number): void { TaskCombatHatedTargetsAroundPed(this.handle, radius, p2 ?? 0); }
   taskCombatHatedTargetsInArea(x: number, y: number, z: number, radius: number, p5: any): void { TaskCombatHatedTargetsInArea(this.handle, x, y, z, radius, p5 ?? 0); }
   taskCower(duration: number): void { TaskCower(this.handle, duration); }
-  taskEnterVehicle(vehicle: number, timeout: number, seat: number, speed: number, p5: number, p6: any): void { TaskEnterVehicle(this.handle, vehicle, timeout ?? -1, seat ?? -1, speed ?? 1.0, p5 ?? 1, p6); }
+  taskEnterVehicle(vehicle: number, timeout: number, seat: number, speed: number, p5: number, p6: any): void {
+    const resolvedSeat = seat ?? -1;
+    if (vehicle > 0 && resolvedSeat === -1) {
+      this.pendingAnimatedDriverEntry = { vehicle, startedAt: Date.now() };
+    } else if (vehicle <= 0) {
+      this.pendingAnimatedDriverEntry = null;
+    }
+    try {
+      (globalThis as any).vehicleEntryTraceLog?.("bridge.taskEnterVehicle", (globalThis as any).mp?.vehicles?.atHandle?.(vehicle), {
+        bridgeVehicle: vehicle,
+        timeout,
+        seat: resolvedSeat,
+        speed,
+        flag: p5,
+      });
+    } catch (_) {}
+    TaskEnterVehicle(this.handle, vehicle, timeout ?? -1, resolvedSeat, speed ?? 1.0, p5 ?? 1, p6);
+  }
   taskFollowPointRoute(speed: number, unknown: number): void { TaskFollowPointRoute(this.handle, speed, unknown); }
   taskForceMotionState(state: number, p2: boolean): void { TaskForceMotionState(this.handle, state, !!p2); }
   taskGetOffBoat(boat: number): void { TaskGetOffBoat(this.handle, boat); }
@@ -526,7 +548,38 @@ export class PedMpBase extends EntityMpBase {
   taskVehicleTempAction(vehicle: number, action: number, time: number): void { TaskVehicleTempAction(this.handle, vehicle, action, time); }
   taskWanderInArea(x: number, y: number, z: number, radius: number, minimalLength: number, timeBetweenWalks: number): void { TaskWanderInArea(this.handle, x, y, z, radius, minimalLength, timeBetweenWalks); }
   taskWanderStandard(p1: number, p2: number): void { TaskWanderStandard(this.handle, p1 ?? 10.0, p2 ?? 10); }
-  taskWarpIntoVehicle(vehicle: number, seat: number): void { TaskWarpPedIntoVehicle(this.handle, vehicle, seat); }
+  taskWarpIntoVehicle(vehicle: number, seat: number): void {
+    const pending = this.pendingAnimatedDriverEntry;
+    if (
+      seat === -1 &&
+      pending?.vehicle === vehicle &&
+      Date.now() - pending.startedAt < 5000 &&
+      !IsPedInVehicle(this.handle, vehicle, false) &&
+      GetIsTaskActive(this.handle, 160)
+    ) {
+      // Older generated Neptune bundles used a 1.6 second emergency warp.
+      // That fires while GTA is still walking to/opening the door and removes
+      // the normal entry animation. Leave the active task intact instead.
+      console.log(`[ragemp-bridge] suppressed premature driver warp vehicle=${vehicle}`);
+      try {
+        (globalThis as any).vehicleEntryTraceLog?.("bridge.warpSuppressed", (globalThis as any).mp?.vehicles?.atHandle?.(vehicle), {
+          bridgeVehicle: vehicle,
+          seat,
+          pendingAgeMs: Date.now() - pending.startedAt,
+        });
+      } catch (_) {}
+      return;
+    }
+    try {
+      (globalThis as any).vehicleEntryTraceLog?.("bridge.warpExecuted", (globalThis as any).mp?.vehicles?.atHandle?.(vehicle), {
+        bridgeVehicle: vehicle,
+        seat,
+        pendingAgeMs: pending ? Date.now() - pending.startedAt : null,
+      });
+    } catch (_) {}
+    this.pendingAnimatedDriverEntry = null;
+    TaskWarpPedIntoVehicle(this.handle, vehicle, seat);
+  }
   taskWrithe(target: number, time: number, p3: number): void { (TaskWrithe as any)(this.handle, target, time, p3 ?? 0, false, 0); }
   updateTaskAimGunScriptedTarget(p1: number, p2: number, p3: number, p4: number, p5: boolean): void { UpdateTaskAimGunScriptedTarget(this.handle, p1, p2, p3, p4, !!p5); }
   updateTaskHandsUpDuration(duration: number): void { UpdateTaskHandsUpDuration(this.handle, duration); }

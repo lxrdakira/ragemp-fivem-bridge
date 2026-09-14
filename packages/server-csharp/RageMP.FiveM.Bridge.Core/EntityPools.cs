@@ -55,6 +55,8 @@ namespace RAGE
 
         public T? Get(ushort id) => _entities.TryGetValue(id, out var entity) ? entity : null;
         public T? GetByNetworkId(int networkId) => _entities.Values.FirstOrDefault(entity => entity.NetworkId == networkId);
+        public T? GetByNativeHandle(int nativeHandle) =>
+            nativeHandle != 0 ? _entities.Values.FirstOrDefault(entity => entity.NativeHandle == nativeHandle) : null;
 
         public T GetOrCreate(ushort id)
         {

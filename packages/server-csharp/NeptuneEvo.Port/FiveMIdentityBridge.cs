@@ -1,5 +1,4 @@
 using System;
-using System.Data;
 using System.Threading.Tasks;
 using GTANetworkAPI;
 using MySqlConnector;
@@ -12,8 +11,9 @@ namespace NeptuneEvo.FiveM
     /// <summary>
     /// Preserves legacy RAGE:MP account ownership on FiveM, where the old
     /// Social Club name/id is not exposed. A successful credential login may
-    /// claim an unbound legacy account once; future connections resolve its
-    /// Social Club value from the stable FiveM license binding.
+    /// claim an unbound legacy account once. BestMP can briefly expose a stale
+    /// launcher identifier after switching Windows/Rockstar profiles, so the
+    /// identifier is never allowed to override valid account credentials.
     /// </summary>
     public sealed class FiveMIdentityBridge : Script
     {
@@ -44,7 +44,11 @@ CREATE TABLE IF NOT EXISTS `fivem_identities` (
         [ServerEvent(Event.PlayerConnected)]
         private async Task OnPlayerConnected(ExtPlayer player)
         {
-            if (!_tableReady || player == null || string.IsNullOrWhiteSpace(player.Serial)) return;
+            // Disabled by default. BestMP has been observed sending another
+            // local profile's license during the first connection attempt. An
+            // automatic lookup would disclose that profile's account login and
+            // make the legitimate credentials fail the legacy Social Club check.
+            if (!_tableReady || !AutoResolveEnabled() || player == null || string.IsNullOrWhiteSpace(player.Serial)) return;
             var legacySocialClub = await FindLegacySocialClub(player.Serial);
             if (!string.IsNullOrWhiteSpace(legacySocialClub))
                 player.ApplyPlatformIdentity(legacySocialClub);
@@ -53,7 +57,7 @@ CREATE TABLE IF NOT EXISTS `fivem_identities` (
         [RemoteEvent("signin")]
         private async Task PrepareLegacySignIn(ExtPlayer player, string loginOrEmail, string password)
         {
-            if (!_tableReady || !IdentityClaimEnabled() || player == null || string.IsNullOrWhiteSpace(player.Serial)) return;
+            if (!IdentityClaimEnabled() || player == null) return;
             var session = player.GetSessionData();
             if (session == null || session.AuntificationData.IsCreateAccount) return;
 
@@ -75,8 +79,9 @@ LIMIT 1;");
             var accountLogin = Convert.ToString(row["login"]);
             var legacySocialClub = Convert.ToString(row["socialclub"]);
             if (string.IsNullOrWhiteSpace(accountLogin) || string.IsNullOrWhiteSpace(legacySocialClub)) return;
-            if (!await ClaimIdentity(player.Serial, accountLogin)) return;
 
+            // Credentials are authoritative for the current session. A stale
+            // BestMP license must not prevent the owner from signing in.
             player.ApplyPlatformIdentity(legacySocialClub);
             session.SocialClubName = legacySocialClub;
             session.RealSocialClub = legacySocialClub;
@@ -84,7 +89,23 @@ LIMIT 1;");
             session.AuntificationData.Email = Convert.ToString(row["email"]);
             session.AuntificationData.Password = Convert.ToString(row["password"]);
             session.AuntificationData.IsCreateAccount = true;
-            Log.Write($"FiveM identity linked to legacy account '{accountLogin}'.", nLog.Type.Success);
+
+            if (_tableReady && !string.IsNullOrWhiteSpace(player.Serial))
+            {
+                try
+                {
+                    if (await BindVerifiedIdentity(player.Serial, accountLogin))
+                        Log.Write($"FiveM identity linked to legacy account '{accountLogin}'.", nLog.Type.Success);
+                    else
+                        Log.Write($"Could not verify the persisted FiveM identity for '{accountLogin}'.", nLog.Type.Warn);
+                }
+                catch (Exception error)
+                {
+                    // Persistent binding is an optimization, not a prerequisite
+                    // for a password-authenticated session.
+                    Log.Write($"Could not persist FiveM identity for '{accountLogin}': {error.Message}", nLog.Type.Warn);
+                }
+            }
         }
 
         private static async Task<string> FindLegacySocialClub(string identifier)
@@ -102,31 +123,18 @@ LIMIT 1;");
                 : null;
         }
 
-        private static async Task<bool> ClaimIdentity(string identifier, string accountLogin)
+        private static async Task<bool> BindVerifiedIdentity(string identifier, string accountLogin)
         {
-            using var lookup = new MySqlCommand(@"
-SELECT `identifier`, `account_login`
-FROM `fivem_identities`
-WHERE `identifier` = @identifier OR LOWER(`account_login`) = LOWER(@account)
-LIMIT 2;");
-            lookup.Parameters.AddWithValue("@identifier", identifier);
-            lookup.Parameters.AddWithValue("@account", accountLogin);
-            using var existing = await MySQL.QueryReadAsync(lookup);
-            if (existing == null) return false;
-            foreach (DataRow row in existing.Rows)
-            {
-                if (!string.Equals(Convert.ToString(row["identifier"]), identifier, StringComparison.Ordinal) ||
-                    !string.Equals(Convert.ToString(row["account_login"]), accountLogin, StringComparison.OrdinalIgnoreCase))
-                    return false;
-            }
-            if (existing.Rows.Count > 0) return true;
-
-            using var insert = new MySqlCommand(@"
-INSERT INTO `fivem_identities` (`identifier`, `account_login`)
+            // This is called only after the account password has been checked.
+            // REPLACE resolves both unique keys atomically, removing stale
+            // launcher/profile bindings without allowing an identifier to
+            // bypass credential authentication.
+            using var bind = new MySqlCommand(@"
+REPLACE INTO `fivem_identities` (`identifier`, `account_login`)
 VALUES (@identifier, @account);");
-            insert.Parameters.AddWithValue("@identifier", identifier);
-            insert.Parameters.AddWithValue("@account", accountLogin);
-            await MySQL.QueryAsync(insert);
+            bind.Parameters.AddWithValue("@identifier", identifier);
+            bind.Parameters.AddWithValue("@account", accountLogin);
+            await MySQL.QueryAsync(bind);
 
             using var verify = new MySqlCommand(@"
 SELECT 1 FROM `fivem_identities`
@@ -142,6 +150,12 @@ LIMIT 1;");
         {
             var value = Environment.GetEnvironmentVariable("SEVENHILLS_FIVEM_IDENTITY_CLAIM");
             return !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase) && value != "0";
+        }
+
+        private static bool AutoResolveEnabled()
+        {
+            var value = Environment.GetEnvironmentVariable("SEVENHILLS_FIVEM_IDENTITY_AUTO_RESOLVE");
+            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) || value == "1";
         }
     }
 }

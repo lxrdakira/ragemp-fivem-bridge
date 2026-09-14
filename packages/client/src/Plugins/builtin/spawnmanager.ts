@@ -1,4 +1,5 @@
 import { acknowledgeManagedSpawn } from "../../internal/eventManagerService";
+import { setPlayerModelIfDifferent } from "../../utils/playerModel";
 
 interface PluginContext {
   log: (...args: unknown[]) => void;
@@ -63,7 +64,10 @@ export default function setup({ mp, plugin }: { mp: any; plugin: PluginContext }
   }
 
   async function waitForGameReady(): Promise<void> {
-    while (!NetworkIsSessionStarted()) {
+    // PiterLive's FXServer transport does not need Rockstar's legacy P2P host,
+    // so NetworkIsSessionStarted() is not a valid readiness signal there.
+    // A live local ped is the capability spawnmanager actually consumes.
+    while (!PlayerPedId() || !DoesEntityExist(PlayerPedId())) {
       await mp.game.waitAsync(100);
     }
   }
@@ -78,7 +82,7 @@ export default function setup({ mp, plugin }: { mp: any; plugin: PluginContext }
 
       const modelHash = await loadModel(data.model);
       if (modelHash !== null) {
-        SetPlayerModel(PlayerId(), modelHash);
+        setPlayerModelIfDifferent(PlayerId(), modelHash);
         SetModelAsNoLongerNeeded(modelHash);
       }
 
@@ -139,6 +143,9 @@ export default function setup({ mp, plugin }: { mp: any; plugin: PluginContext }
 
   on("onClientResourceStart", (resName: string) => {
     if (resName !== GetCurrentResourceName()) return;
+    // RAGE:MP presents the login UI before the gamemode explicitly spawns a
+    // character. FiveM otherwise remains on "Awaiting scripts" until doSpawn.
+    ShutdownLoadingScreen();
     if (typeof ShutdownLoadingScreenNui === "function")
       ShutdownLoadingScreenNui();
   });

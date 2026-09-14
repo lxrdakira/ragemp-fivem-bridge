@@ -4,9 +4,10 @@ import { defineInternals } from "@ragemp-fivem-bridge/shared/internal";
 import { rageHealthToGtaPed } from "@ragemp-fivem-bridge/shared";
 import { onWorldScan } from "../../utils/worldScan";
 import { PlayerMp } from "../../Entities/PlayerMp";
-import { setPlayerNetworkIdentity } from "../playerInternals";
+import { PlayerInternals, setPlayerNetworkIdentity } from "../playerInternals";
 import type { PlayerMpPool } from "../../Pools/PlayerMpPool";
-import { hydrateSharedData } from "../../utils/sharedData";
+import { hydrateSharedData, notifySharedDataValue } from "../../utils/sharedData";
+import { EntityInternals } from "@ragemp-fivem-bridge/shared/internal";
 
 interface PlayerPoolState {
   serverIdToRemote: Map<number, number>;
@@ -45,13 +46,43 @@ export function setupPlayerPool(pool: PlayerMpPool): void {
 
 function setLocalRemoteId(pool: PlayerMpPool, remoteId: number): void {
   const local = pool.local;
-  if (!local || local.remoteId === remoteId) return;
+  if (!local || (local.remoteId === remoteId && pool.atRemoteId(remoteId) === local)) return;
   const duplicate = pool.atRemoteId(remoteId);
   if (duplicate && duplicate !== local) {
     removeFromPool(pool, duplicate.id);
     freeClientId(pool, duplicate.id);
   }
+  const remoteIndex = poolStore(pool).remoteIndex;
+  if (remoteIndex.get(local.remoteId) === local) remoteIndex.delete(local.remoteId);
   attachRemoteId(pool, local, remoteId);
+}
+
+function refreshLocalIdentity(pool: PlayerMpPool, playerIndex: number, serverId: number, created = false): void {
+  if (!pool.local || !Number.isInteger(serverId) || serverId < 1) return;
+  const local = pool.local;
+  const previous = PlayerInternals.get(local);
+  const changedServer = previous.serverId > 0 && previous.serverId !== serverId;
+  const changedIdentity = previous.serverId !== serverId || previous.playerIndex !== playerIndex;
+  const remoteId = Store.get(pool).serverIdToRemote.get(serverId);
+  const changedMapping = remoteId !== undefined &&
+    (local.remoteId !== remoteId || pool.atRemoteId(remoteId) !== local);
+  const duplicate = remoteId !== undefined ? pool.atRemoteId(remoteId) : null;
+  const promotedData = duplicate && duplicate !== local
+    ? [...EntityInternals.get(duplicate).variables.entries()] : [];
+  setPlayerNetworkIdentity(local, playerIndex, serverId);
+  if (remoteId !== undefined) setLocalRemoteId(pool, remoteId);
+  if (changedServer) {
+    // Never carry old-session privileges/custom properties into a new identity.
+    // Notify only after repairing the local mapping so identity-filtered legacy
+    // handlers see the same stable local wrapper with its current remoteId.
+    for (const key of [...EntityInternals.get(local).variables.keys()]) notifySharedDataValue(local, key, null);
+  }
+  if (created || changedIdentity || changedMapping) {
+    // Preserve already-delivered data-handler values when removing an early
+    // duplicate. Native state-bag proxies need not enumerate their keys.
+    for (const [key, value] of promotedData) notifySharedDataValue(local, key, value);
+    try { hydrateSharedData(local, globalThis.Player(serverId).state); } catch (_) {}
+  }
 }
 
 function addRemotePlayer(pool: PlayerMpPool, remoteId: number, playerIndex: number, serverId: number): void {
@@ -66,26 +97,38 @@ function addRemotePlayer(pool: PlayerMpPool, remoteId: number, playerIndex: numb
 }
 
 function setupLocal(pool: PlayerMpPool): void {
-  const create = (): boolean => {
+  const createOrRefresh = (): boolean => {
     try {
       const playerIndex = PlayerId();
       const serverId = GetPlayerServerId(playerIndex);
-      if (!serverId) return false;
-      pool.local = new PlayerMp(CONSTRUCT, 0, playerIndex, serverId);
-      addLocal(pool, pool.local);
-      try { hydrateSharedData(pool.local, globalThis.Player(serverId).state); } catch (_) {}
-      const remoteId = Store.get(pool).serverIdToRemote.get(serverId);
-      if (remoteId !== undefined) setLocalRemoteId(pool, remoteId);
+      // The PiterLive TU 2026 adapter deliberately does not start Rockstar's
+      // legacy P2P host. During the first client-resource tick FiveM therefore
+      // has a perfectly valid local ped/player index while the Rockstar native
+      // still reports server id 0. RAGE:MP exposes mp.players.local
+      // synchronously, and Neptune captures it while its bundle is evaluated,
+      // so postponing creation leaves global.localplayer undefined forever.
+      const created = !pool.local;
+      if (created) {
+        pool.local = new PlayerMp(CONSTRUCT, 0, playerIndex, serverId);
+        addLocal(pool, pool.local);
+      }
+
+      if (!serverId || serverId < 1) return false;
+      refreshLocalIdentity(pool, playerIndex, serverId, created);
       return true;
     } catch (e) {
       return false;
     }
   };
-  if (!create()) {
+  if (!createOrRefresh()) {
     const tick = setTick(() => {
-      if (create()) clearTick(tick);
+      if (createOrRefresh()) clearTick(tick);
     });
   }
+  // On in-process reconnect the first native ID may still be the old positive
+  // ID, so the initial ready tick alone is insufficient. Reconcile on the
+  // existing world scan; unchanged identity does not replay any shared data.
+  onWorldScan(() => { createOrRefresh(); });
 }
 
 function setupStreaming(pool: PlayerMpPool): void {
@@ -123,7 +166,7 @@ function applyMap(pool: PlayerMpPool, source: number, remoteId: number): void {
 
   try {
     if (pool.local && GetPlayerServerId(PlayerId()) === source) {
-      setLocalRemoteId(pool, remoteId);
+      refreshLocalIdentity(pool, PlayerId(), source);
       return;
     }
   } catch (e) {}
@@ -164,7 +207,7 @@ function setupIdentitySync(pool: PlayerMpPool): void {
 function setupServerSync(pool: PlayerMpPool): void {
   onNet("ragemp:setPosition", (x: number, y: number, z: number) => {
     if (![x, y, z].every(Number.isFinite)) return;
-    SetEntityCoords(PlayerPedId(), x, y, z, false, false, false, false);
+    SetEntityCoordsNoOffset(PlayerPedId(), x, y, z, true, true, true);
   });
 
   onNet("ragemp:setRotation", (x: number, y: number, z: number) => {

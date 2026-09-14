@@ -25,10 +25,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Player state synchronization", TestPlayerStateSynchronization),
     ("Network argument serialization", TestNetworkArguments),
     ("Network entity argument dispatch", TestNetworkEntityDispatch),
+    ("Bare entity id argument dispatch", TestBareEntityIdDispatch),
     ("Variadic remote event dispatch", TestVariadicRemoteEvent),
     ("Optional remote event contract", TestOptionalRemoteContract),
-    ("Broadcast entity synchronization", TestEntityNetworkSync)
-    ,("Native entity synchronization", TestNativeEntitySync),
+    ("Broadcast entity synchronization", TestEntityNetworkSync),
+    ("Native entity synchronization", TestNativeEntitySync),
+    ("Native entity shared data synchronization", TestNativeEntitySharedDataSync),
+    ("Native entity creation failure", TestNativeEntityCreationFailure),
+    ("Native ped creation retry", TestNativePedCreationRetry),
+    ("Native entity bootstrap snapshot", TestNativeEntityBootstrapSnapshot),
+    ("Native entity resolver", TestNativeEntityResolver),
     ("Vehicle class catalog", TestVehicleClassCatalog)
 };
 
@@ -274,28 +280,61 @@ static Task TestNetworkArguments()
     BridgeRuntime.Configure(new FakeRuntime());
     var player = NewPlayer(25);
     var vehicle = NAPI.Vehicle.CreateVehicle(123u, new Vector3(), 0f, 0, 0);
-    var output = NetArgumentSerializer.Sanitize(new object[] { player, new object[] { vehicle } });
+    var output = NetArgumentSerializer.Sanitize(new object[]
+    {
+        player,
+        new object[] { vehicle },
+        new Vector3(12.5f, -3f, 44f),
+        new Color(10, 20, 30, 40)
+    });
     var playerRef = (Dictionary<string, object>)output[0];
     var nested = (List<object?>)output[1];
     var vehicleRef = (Dictionary<string, object>)nested[0]!;
+    var vector = (Dictionary<string, object>)output[2];
+    var color = (Dictionary<string, object>)output[3];
     Equal("player", playerRef["__mpRef"]);
     Equal((ushort)25, playerRef["id"]);
     Equal(vehicle.NetworkId, vehicleRef["netId"]);
+    Equal(12.5f, vector["X"]);
+    Equal(-3f, vector["Y"]);
+    Equal(44f, vector["Z"]);
+    Equal(false, vector.ContainsKey("Normalized"));
+    Equal(10, color["Red"]);
+    Equal(40, color["Alpha"]);
     vehicle.Delete();
     return Task.CompletedTask;
 }
 
 static async Task TestNetworkEntityDispatch()
 {
-    BridgeRuntime.Configure(new FakeRuntime());
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
     var vehicle = NAPI.Vehicle.CreateVehicle(124u, new Vector3(), 0f, 0, 0);
+    var clientNetworkId = vehicle.NetworkId + 50000;
+    runtime.NetworkHandles[clientNetworkId] = vehicle.NativeHandle;
     var script = new EntityRefScript();
     var dispatcher = new EventDispatcher();
     dispatcher.Register(script);
     await dispatcher.DispatchRemoteAsync(
         "vehicle.select",
         NewPlayer(26),
-        new Dictionary<string, object> { ["__mpRef"] = "vehicle", ["id"] = -1, ["netId"] = vehicle.NetworkId });
+        new Dictionary<string, object> { ["__mpRef"] = "vehicle", ["id"] = ushort.MaxValue, ["netId"] = clientNetworkId });
+    Equal(vehicle, script.Vehicle);
+    Equal(clientNetworkId, vehicle.NetworkId);
+    vehicle.Delete();
+}
+
+static async Task TestBareEntityIdDispatch()
+{
+    BridgeRuntime.Configure(new FakeRuntime());
+    var vehicle = NAPI.Vehicle.CreateVehicle(125u, new Vector3(), 0f, 0, 0);
+    var script = new EntityRefScript();
+    var dispatcher = new EventDispatcher();
+    dispatcher.Register(script);
+    await dispatcher.DispatchRemoteAsync(
+        "vehicle.select",
+        NewPlayer(26),
+        new Dictionary<string, object> { ["id"] = (int)vehicle.Id });
     Equal(vehicle, script.Vehicle);
     vehicle.Delete();
 }
@@ -342,7 +381,8 @@ static Task TestEntityNetworkSync()
     var tube = NAPI.ColShape.CreateCylinderColShape(new Vector3(5, 6, 10), 2f, 4f);
     Equal(true, tube.IsPointWithin(new Vector3(5, 6, 10)));
     Equal(true, tube.IsPointWithin(new Vector3(5, 6, 14)));
-    Equal(false, tube.IsPointWithin(new Vector3(5, 6, 9.9f)));
+    Equal(true, tube.IsPointWithin(new Vector3(5, 6, 9.9f)));
+    Equal(false, tube.IsPointWithin(new Vector3(5, 6, 8.7f)));
     tube.Delete();
     var blip = NAPI.Blip.CreateBlip(7, new Vector3(8, 9, 10), 1.25f, 4, "Range", 180, 75f, true, 45, 12);
     Equal("ragemp:blipCreate", runtime.BroadcastEvents.Last().EventName);
@@ -362,12 +402,19 @@ static Task TestNativeEntitySync()
     Equal(vehicle.Id + 1000, vehicle.NetworkId);
     Equal(true, vehicle.NativeHandle != 0);
     Equal("ragemp:entity:create", runtime.BroadcastEvents[0].EventName);
+    Equal(vehicle.NetworkId, runtime.BroadcastEvents[0].Arguments[8]);
     Equal("ragemp:entity:netid", runtime.BroadcastEvents[1].EventName);
     Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[2].EventName);
+    Equal(vehicle.Id, runtime.BroadcastEvents[2].Arguments[2]);
     vehicle.Health = 650f;
     Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[3].EventName);
     Equal(650f, vehicle.BodyHealth);
     Equal(650f, vehicle.EngineHealth);
+    vehicle.NumberPlate = "UPDATED";
+    Equal("ragemp:entity:create", runtime.BroadcastEvents[4].EventName);
+    Equal("UPDATED", runtime.BroadcastEvents[4].Arguments[7]);
+    Equal(vehicle.NetworkId, runtime.BroadcastEvents[4].Arguments[8]);
+    Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[5].EventName);
     var passenger = NewPlayer(26);
     passenger.Vehicle = vehicle;
     passenger.VehicleSeat = (int)VehicleSeat.RightFront;
@@ -384,9 +431,11 @@ static Task TestNativeEntitySync()
     Equal(1, runtime.DeletedEntities.Count);
     Equal(vehicle, runtime.DeletedEntities.Single());
     Equal(true, vehicle.NetworkId != oldNetworkId);
-    Equal("ragemp:entity:create", runtime.BroadcastEvents[4].EventName);
-    Equal("ragemp:entity:netid", runtime.BroadcastEvents[5].EventName);
-    Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[6].EventName);
+    Equal("ragemp:entity:create", runtime.BroadcastEvents[6].EventName);
+    Equal(vehicle.NetworkId, runtime.BroadcastEvents[6].Arguments[8]);
+    Equal("ragemp:entity:netid", runtime.BroadcastEvents[7].EventName);
+    Equal("ragemp:vehicle:batch", runtime.BroadcastEvents[8].EventName);
+    Equal(vehicle.Id, runtime.BroadcastEvents[8].Arguments[2]);
     Equal(2, runtime.ClientEvents.Count);
     Equal(vehicle.NetworkId, runtime.ClientEvents[0].Arguments[0]);
     runtime.ClientEvents.Clear();
@@ -394,7 +443,7 @@ static Task TestNativeEntitySync()
     Equal("ragemp:putIntoVehicle", runtime.ClientEvents.Single().EventName);
     Equal(vehicle.NetworkId, runtime.ClientEvents.Single().Arguments[0]);
     vehicle.Delete();
-    Equal("ragemp:entity:destroy", runtime.BroadcastEvents[7].EventName);
+    Equal("ragemp:entity:destroy", runtime.BroadcastEvents[9].EventName);
     Equal(0, vehicle.NetworkId);
     Equal(false, RAGE.Entities.Vehicles.All.Contains(vehicle));
 
@@ -409,6 +458,114 @@ static Task TestNativeEntitySync()
     Equal("ragemp:requestEntityControl", runtime.ClientEvents.Single().EventName);
     Equal(ped.NetworkId, runtime.ClientEvents.Single().Arguments[0]);
     ped.Delete();
+    return Task.CompletedTask;
+}
+
+static Task TestNativeEntitySharedDataSync()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    var vehicle = NAPI.Vehicle.CreateVehicle(988u, new Vector3(), 0f, 0, 0, "SHARED");
+    runtime.BroadcastEvents.Clear();
+
+    vehicle.SetSharedData("PETROL", 80);
+    var update = runtime.BroadcastEvents.Single(e => e.EventName == "ragemp:entity:sharedData");
+    Equal("vehicle", update.Arguments[0]);
+    Equal(vehicle.Id, update.Arguments[1]);
+    Equal("PETROL", update.Arguments[2]);
+    Equal(80, update.Arguments[3]);
+
+    vehicle.Delete();
+    return Task.CompletedTask;
+}
+
+static Task TestNativeEntityCreationFailure()
+{
+    var runtime = new FakeRuntime { FailEntityCreation = true };
+    BridgeRuntime.Configure(runtime);
+
+    var vehicle = NAPI.Vehicle.CreateVehicle(987u, new Vector3(1, 2, 3), 45f, 1, 2, "FAIL");
+
+    Equal(false, vehicle.Exists);
+    Equal(0, vehicle.NativeHandle);
+    Equal(0, vehicle.NetworkId);
+    Equal(false, RAGE.Entities.Vehicles.All.Contains(vehicle));
+    Equal(0, runtime.BroadcastEvents.Count);
+    return Task.CompletedTask;
+}
+
+static Task TestNativePedCreationRetry()
+{
+    var runtime = new FakeRuntime { FailEntityCreation = true };
+    BridgeRuntime.Configure(runtime);
+
+    var ped = NAPI.Ped.CreatePed(988u, new Vector3(10, 20, 30), 90f, frozen: true);
+
+    Equal(true, ped.Exists);
+    Equal(0, ped.NativeHandle);
+    Equal(0, ped.NetworkId);
+    Equal(true, RAGE.Entities.Peds.All.Contains(ped));
+    Equal(4, runtime.CreatedEntities.Count(entity => entity == ped));
+    Equal(1, runtime.BroadcastEvents.Count(e => e.EventName == "ragemp:entity:create"));
+    Equal(1, runtime.BroadcastEvents.Count(e => e.EventName == "ragemp:ped:localCreate"));
+    Equal(1, runtime.BroadcastEvents.Count(e => e.EventName == "ragemp:ped:batch"));
+
+    ped.Delete();
+    Equal(false, RAGE.Entities.Peds.All.Contains(ped));
+    return Task.CompletedTask;
+}
+
+static Task TestNativeEntityBootstrapSnapshot()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    var vehicle = NAPI.Vehicle.CreateVehicle(321u, new Vector3(4, 5, 6), 45f, 3, 4, "SNAP");
+    var target = NewPlayer(30);
+    runtime.ClientEvents.Clear();
+    runtime.BroadcastEvents.Clear();
+
+    EntityNetworkSync.SendAll(target);
+
+    var snapshot = runtime.ClientEvents.FirstOrDefault(e => e.EventName == "ragemp:entity:snapshot");
+    Equal("ragemp:entity:snapshot", snapshot.EventName);
+    var chunk = (object[])snapshot.Arguments[0];
+    var entry = (object[])chunk.Single(item => ((object[])item)[0]?.ToString() == "vehicle");
+    Equal("vehicle", entry[0]);
+    Equal(vehicle.Id, entry[1]);
+    Equal(vehicle.NetworkId, entry[7]);
+    var snapshotIndex = runtime.ClientEvents.FindIndex(e => e.EventName == "ragemp:entity:snapshot");
+    var stateIndex = runtime.ClientEvents.FindIndex(e => e.EventName == "ragemp:vehicle:batch");
+    Equal(true, snapshotIndex >= 0 && stateIndex > snapshotIndex);
+
+    vehicle.Delete();
+    return Task.CompletedTask;
+}
+
+static Task TestNativeEntityResolver()
+{
+    var runtime = new FakeRuntime();
+    BridgeRuntime.Configure(runtime);
+    var vehicle = NAPI.Vehicle.CreateVehicle(322u, new Vector3(), 0f, 0, 0);
+    var target = NewPlayer(31);
+    runtime.ClientEvents.Clear();
+
+    Equal(true, EntityNetworkSync.SendNativeReferenceByNetworkId(target, "vehicle", vehicle.NetworkId));
+    Equal("ragemp:entity:create", runtime.ClientEvents[0].EventName);
+    Equal(vehicle.Id, runtime.ClientEvents[0].Arguments[1]);
+    Equal(vehicle.NetworkId, runtime.ClientEvents[0].Arguments[8]);
+    Equal("ragemp:entity:netid", runtime.ClientEvents[1].EventName);
+    Equal(vehicle.NetworkId, runtime.ClientEvents[1].Arguments[2]);
+    runtime.ClientEvents.Clear();
+    var remappedNetworkId = vehicle.NetworkId + 40000;
+    runtime.NetworkHandles[remappedNetworkId] = vehicle.NativeHandle;
+    Equal(true, EntityNetworkSync.SendNativeReferenceByNetworkId(target, "vehicle", remappedNetworkId));
+    Equal(remappedNetworkId, vehicle.NetworkId);
+    Equal(remappedNetworkId, runtime.ClientEvents[1].Arguments[2]);
+    runtime.ClientEvents.Clear();
+    Equal(false, EntityNetworkSync.SendNativeReferenceByNetworkId(target, "vehicle", remappedNetworkId + 99999));
+    Equal(0, runtime.ClientEvents.Count);
+
+    vehicle.Delete();
     return Task.CompletedTask;
 }
 
@@ -445,12 +602,14 @@ sealed class ExampleScript : Script
 
 sealed class FakeRuntime : IBridgeRuntime
 {
+    public bool FailEntityCreation { get; set; }
     public List<(Player Player, string EventName, object[] Arguments)> ClientEvents { get; } = new();
     public List<(Entity Entity, string Key, object? Value)> SharedData { get; } = new();
     public List<(Entity Entity, string Key)> ResetSharedDataKeys { get; } = new();
     public List<(string EventName, object[] Arguments)> BroadcastEvents { get; } = new();
     public List<Entity> CreatedEntities { get; } = new();
     public List<Entity> DeletedEntities { get; } = new();
+    public Dictionary<int, int> NetworkHandles { get; } = new();
     public void Schedule(Action action, long delayMilliseconds = 0) => action();
     public void TriggerClientEvent(Player player, string eventName, object[] arguments) => ClientEvents.Add((player, eventName, arguments));
     public void TriggerClientEventForAll(string eventName, object[] arguments) => BroadcastEvents.Add((eventName, arguments));
@@ -462,9 +621,11 @@ sealed class FakeRuntime : IBridgeRuntime
     public NetworkEntityReference CreateNetworkEntity(Entity entity)
     {
         CreatedEntities.Add(entity);
+        if (FailEntityCreation) return new NetworkEntityReference();
         var generation = (CreatedEntities.Count - 1) * 1000;
         return new NetworkEntityReference { Handle = entity.Id + generation, NetworkId = entity.Id + generation + 1000 };
     }
+    public int ResolveNetworkEntityHandle(int networkId) => NetworkHandles.TryGetValue(networkId, out var handle) ? handle : 0;
     public void UpdateNetworkEntity(Entity entity) { }
     public void DeleteNetworkEntity(Entity entity) => DeletedEntities.Add(entity);
     public void SetPlayerDimension(Player player, uint dimension) { }

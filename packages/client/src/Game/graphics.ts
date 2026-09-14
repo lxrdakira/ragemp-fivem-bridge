@@ -5,24 +5,53 @@ type EntityOverlayParams = Record<string, any>;
 
 let artificialLightsDisabled = false;
 
+// RAGE resources commonly expose their own `global.DrawSprite` helper. In the
+// FiveM runtime that property is also the generated DRAW_SPRITE native, so the
+// helper replaces it and calling it from here loops back into
+// mp.game.graphics.drawSprite. Keep the original native reference before any
+// migrated client package gets a chance to populate `global`.
+const nativeDrawSprite = DrawSprite;
+
 export class GameGraphicsNs {
   unk = createUnkProxy();
 
   screen2dToWorld3d(
     screenX:
       | number
-      | { x?: number; y?: number; [0]?: number; [1]?: number }
+      | { x?: number; y?: number; z?: number; [0]?: number; [1]?: number; [2]?: number }
       | null,
     screenY?: number,
   ): Vector3 | null {
     let sx = screenX;
     let sy = screenY;
+    let depth = 1000;
     if (sx != null && typeof sx === "object") {
       sy = sx.y ?? sx[1] ?? 0;
+      const requestedDepth = +(sx.z ?? sx[2] ?? 0);
+      if (Number.isFinite(requestedDepth) && requestedDepth > 0) depth = requestedDepth;
       sx = sx.x ?? sx[0] ?? 0;
     }
-    const [coords] = GetWorldCoordFromScreenCoord(+sx || 0, +sy || 0);
-    return coords ? toVec3(coords) : null;
+
+    let normalizedX = +sx || 0;
+    let normalizedY = +sy! || 0;
+    // RAGE passes pixel coordinates; FiveM expects normalized 0..1 values.
+    if (Math.abs(normalizedX) > 1 || Math.abs(normalizedY) > 1) {
+      const resolution = GetActiveScreenResolution();
+      const width = resolution?.[0] || 1;
+      const height = resolution?.[1] || 1;
+      normalizedX /= width;
+      normalizedY /= height;
+    }
+
+    const [origin, normal] = GetWorldCoordFromScreenCoord(normalizedX, normalizedY);
+    if (!origin) return null;
+    if (!normal) return toVec3(origin);
+
+    return new Vector3(
+      origin[0] + normal[0] * depth,
+      origin[1] + normal[1] * depth,
+      origin[2] + normal[2] * depth,
+    );
   }
 
   drawSpotLight(
@@ -276,7 +305,7 @@ export class GameGraphicsNs {
     alpha: number,
     unk: boolean,
   ): void {
-    DrawSprite(
+    nativeDrawSprite(
       textureDict,
       textureName,
       screenX,
@@ -2864,7 +2893,7 @@ export class GameGraphicsNs {
 
   drawText(
     text: string,
-    pos: { x?: number; y?: number; [0]?: number; [1]?: number } | null,
+    pos: { x?: number; y?: number; z?: number; [0]?: number; [1]?: number; [2]?: number } | null,
     data?: {
       font?: number;
       scale?: number[];
@@ -2874,8 +2903,18 @@ export class GameGraphicsNs {
     },
   ): void {
     const opts = data ?? {};
-    const x = pos?.x ?? pos?.[0] ?? 0;
-    const y = pos?.y ?? pos?.[1] ?? 0;
+    let x = pos?.x ?? pos?.[0] ?? 0;
+    let y = pos?.y ?? pos?.[1] ?? 0;
+    const z = pos?.z ?? pos?.[2];
+
+    // RAGE accepts both screen [x, y] and world [x, y, z] coordinates here.
+    // FiveM's text native only accepts normalized screen coordinates.
+    if (z !== undefined && Number.isFinite(+z)) {
+      const projected = GetScreenCoordFromWorldCoord(+x, +y, +z);
+      if (!projected?.[0]) return;
+      x = projected[1];
+      y = projected[2];
+    }
     SetTextFont(opts.font ?? 0);
     const scale = opts.scale ?? [0.0, 0.35];
     SetTextScale(scale[0] ?? 0.0, scale[1] ?? 0.35);

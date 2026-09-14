@@ -72,6 +72,13 @@ export class Mp {
   markers: MarkerMpPool = new MarkerMpPool();
   labels: TextLabelMpPool = new TextLabelMpPool();
   events: EventManager = new EventManager();
+  // RAGE:MP exposes the unwrapped event registrar through `mp._events`.
+  // Neptune captures this function before replacing `gm.events.add` with its
+  // own error-reporting wrapper, so it must remain callable without a `this`
+  // receiver.
+  _events = {
+    add: this.events.add.bind(this.events),
+  };
   keys: KeyManager = new KeyManager();
   gui: GuiMp = new GuiMp();
   console: ConsoleMp = new ConsoleMp();

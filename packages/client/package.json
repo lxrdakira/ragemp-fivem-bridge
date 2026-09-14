@@ -12,6 +12,7 @@
   "scripts": {
     "prebuild": "rimraf dist",
     "build": "rollup -c",
+    "test:identity": "rollup -c tests/rollup.config.mjs && node tests/.tmp/entity-identity.cjs && node tests/.tmp/vehicle-extras.cjs && node tests/.tmp/player-reconnect.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

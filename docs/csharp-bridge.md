@@ -48,6 +48,8 @@ Outputs:
 
 - `dist/ragemp-fivem-bridge`
 - `dist/neptuneevo-ui-dev`
+- `dist/neptuneevo-ui-assets-common`
+- `dist/neptuneevo-ui-assets-player`
 
 The development UI uses directory junctions for the roughly 10 GB original
 asset tree. To create a self-contained UI resource that can be copied to a
@@ -57,12 +59,15 @@ different machine, run:
 pnpm run pack:neptune:ui:portable
 ```
 
-This creates `dist/neptuneevo-ui` and can take substantial time and disk space.
+This creates `dist/neptuneevo-ui` plus the two split asset resources and can
+take substantial time and disk space.
 
 Start order in `server.cfg`:
 
 ```cfg
 ensure ragemp-fivem-bridge
+ensure neptuneevo-ui-assets-common
+ensure neptuneevo-ui-assets-player
 ensure neptuneevo-ui
 ```
 

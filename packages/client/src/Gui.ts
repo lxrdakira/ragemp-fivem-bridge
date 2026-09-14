@@ -1,4 +1,4 @@
-import { setCursorVisible } from "./utils/nuiFocus";
+import { getNuiFocusDebugState, releaseAllNuiFocus, setCursorVisible } from "./utils/nuiFocus";
 import { getChatBrowser } from "./internal/browserInternals";
 
 function callChatBrowser(event: string, ...args: any[]): void {
@@ -17,6 +17,18 @@ export class GuiMp {
 
   execute(code: string): void {
     SendNuiMessage(JSON.stringify({ type: "execute", code }));
+  }
+
+  releaseInputFocus(reason = "legacy-client"): void {
+    this.cursor.resetAfterForcedRelease();
+    releaseAllNuiFocus(reason);
+  }
+
+  getInputFocusDebugState(): Record<string, unknown> {
+    return {
+      ...getNuiFocusDebugState(),
+      cursorObjectVisible: this.cursor.visible,
+    };
   }
 
   takeScreenshot(target: string | ((data: string | null) => void) | null, type: number, quality?: number, _compression?: number): void {
@@ -129,6 +141,12 @@ class CursorMp {
       clearTick(this._freezeTick);
       this._freezeTick = null;
     }
+  }
+
+  resetAfterForcedRelease(): void {
+    this._visible = false;
+    this._freeze = false;
+    this._updateFreezeTick();
   }
 
   get position(): [number, number] {

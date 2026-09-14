@@ -103,7 +103,7 @@ export class PlayerMp extends Entity {
   }
 
   override set position(value: Vector3) {
-    SetEntityCoords(this.ped, value.x, value.y, value.z, false, false, false, false);
+    SetEntityCoordsNoOffset(this.ped, value.x, value.y, value.z, true, true, true);
   }
 
   override get dimension(): number {

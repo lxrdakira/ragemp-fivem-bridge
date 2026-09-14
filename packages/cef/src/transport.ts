@@ -53,7 +53,14 @@ export function preventReload(e: KeyboardEvent): boolean {
 }
 
 export async function toClient(channel: string, body?: Record<string, unknown>): Promise<Response | void> {
-  const url = `https://${resourceName()}/${channel}`;
+  // BestMP/FiveM b3889 does not dispatch NUI callback paths containing a
+  // colon. The game-side bridge registers both the public RAGE-style name and
+  // this underscore alias, but direct DUI/headless pages do not pass through
+  // the manager iframe that injects the fetch compatibility shim. Normalize
+  // bridge-owned requests here so browserDomReady and RPC work in both normal
+  // CEF frames and standalone DUI pages.
+  const callbackPath = channel.includes(":") ? channel.replace(":", "_") : channel;
+  const url = `https://${resourceName()}/${callbackPath}`;
   return fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

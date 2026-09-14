@@ -4,10 +4,11 @@ import { addLocal } from "../internal/pools/clientPool";
 import { BrowserMp, setBrowserProcTimeout, getBrowserProcTimeout } from "../Entities/BrowserMp";
 import { setupBrowserPool } from "../internal/pools/browserPoolService";
 import {
-  beginHeadlessReadyHandshake,
+  applyBrowserPointerEvents,
   initBrowserPoolInternals,
   setHeadlessBrowser,
 } from "../internal/browserInternals";
+import { NUI_FETCH_COMPATIBILITY_CODE } from "../internal/nuiCallback";
 
 let headlessGeneration = 0;
 
@@ -34,6 +35,12 @@ export class BrowserMpPool extends Pool<BrowserMp> {
     if (typeof SendNuiMessage === "function") {
       SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:create", browserId: id, url }));
     }
+    // Queue the b3889 callback-path compatibility shim behind assignId. The
+    // CEF manager flushes this as soon as the nested legacy browser is ready.
+    browser.execute(NUI_FETCH_COMPATIBILITY_CODE);
+    // New visual browsers start inactive. Disable their full-screen iframe
+    // immediately so an invisible helper browser cannot cover the active UI.
+    applyBrowserPointerEvents(browser);
 
     browser.orderId = id;
 
@@ -50,22 +57,28 @@ export class BrowserMpPool extends Pool<BrowserMp> {
     const textureDict = `ragemp_dui_${browser.id}_${generation}`;
     const textureName = "browser";
     const resolvedUrl = resolveHeadlessUrl(url);
-    const dui = CreateDui(resolvedUrl, Math.max(1, width | 0), Math.max(1, height | 0));
-    const runtimeTxd = CreateRuntimeTxd(textureDict);
-    CreateRuntimeTextureFromDuiHandle(runtimeTxd, textureName, GetDuiHandle(dui));
 
-    browser.headlessTextureDict = textureDict;
-    browser.headlessTextureName = textureName;
+    // These public fields are the legacy readiness contract used by Neptune's
+    // marker renderers. Keep them empty until CreateDui and its runtime texture
+    // actually exist; publishing names here made a not-yet-created surface look
+    // ready and silently drew a missing texture.
+    browser.headlessTextureDict = "";
+    browser.headlessTextureName = "";
     browser.headlessTextureHeightScale = 1;
     setHeadlessBrowser(browser, {
-      dui,
+      dui: 0,
       resolvedUrl,
       textureDict,
       textureName,
+      width: Math.max(1, width | 0),
+      height: Math.max(1, height | 0),
+      surfaceGeneration: generation,
       readyTimer: null,
+      activationTimer: null,
+      idleTimer: null,
       pendingPayloads: [],
+      replayPayloads: [],
     });
-    beginHeadlessReadyHandshake(browser);
 
     browser.orderId = browser.id;
     globalThis.mp?.events?.call("browserCreated", browser);

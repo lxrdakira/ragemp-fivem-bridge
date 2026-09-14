@@ -5,6 +5,7 @@ export interface StreamingInternalsRec {
   byRemote: Map<number, any>;
   byLocal: Map<number, any>;
   netIdToRemote: Map<number, number>;
+  missingHandleSince: Map<number, number>;
   ids: IdAllocator;
   activeSet: Set<number>;
   netType: string | null;
@@ -22,6 +23,7 @@ export function initStreamingInternals(pool: object, netType: string | null): St
     byRemote: new Map(),
     byLocal: new Map(),
     netIdToRemote: new Map(),
+    missingHandleSince: new Map(),
     ids: new IdAllocator(),
     activeSet: new Set(),
     netType,
@@ -34,10 +36,12 @@ export function initStreamingInternals(pool: object, netType: string | null): St
 
 export interface StreamingEntityRec {
   isServer: boolean;
+  isLocalFallback: boolean;
   netId: number;
   serverModel: number;
   serverPos: { x: number; y: number; z: number };
   serverDimension: number;
+  serverPlate: string;
 }
 
 const EntityState = defineInternals<StreamingEntityRec>();
@@ -47,9 +51,11 @@ export function streamEntityState(entity: object): StreamingEntityRec {
   if (existing) return existing;
   return EntityState.init(entity, {
     isServer: false,
+    isLocalFallback: false,
     netId: 0,
     serverModel: 0,
     serverPos: { x: 0, y: 0, z: 0 },
     serverDimension: 0,
+    serverPlate: "",
   });
 }

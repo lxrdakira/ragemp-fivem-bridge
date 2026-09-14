@@ -180,7 +180,11 @@ export function createRuntime(): {
       } catch (e) {
         log("exec error", String(e));
         console.error("[ragemp:exec]", e);
-        report({ kind: "exec", ...serializeError(e) });
+        report({
+          kind: "exec",
+          ...serializeError(e),
+          code: data.code.length > 1000 ? `${data.code.slice(0, 1000)}…` : data.code,
+        });
       }
       return;
     }

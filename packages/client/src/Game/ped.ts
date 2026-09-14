@@ -1,5 +1,6 @@
 import { createUnkProxy, toVec3, _pollUntilLoaded } from "./_helpers.js";
 import { Vector3 } from "@ragemp-fivem-bridge/shared";
+import { setCompatibleComponentVariation, setCompatiblePropIndex } from "../utils/clothingCompatibility";
 
 export class GamePedNs {
   unk = createUnkProxy();
@@ -137,7 +138,7 @@ export class GamePedNs {
   setCanBeDraggedOut(ped: number, toggle: boolean): void { SetPedCanBeDraggedOut(ped, toggle); }
 
   setComponentVariation(ped: number, componentId: number, drawableId: number, textureId: number, paletteId: number): void {
-    SetPedComponentVariation(ped, componentId, drawableId, textureId, paletteId);
+    setCompatibleComponentVariation(ped, componentId, drawableId, textureId, paletteId);
   }
   getDrawableVariation(ped: number, componentId: number): number { return GetPedDrawableVariation(ped, componentId); }
   getTextureVariation(ped: number, componentId: number): number { return GetPedTextureVariation(ped, componentId); }
@@ -206,7 +207,7 @@ export class GamePedNs {
   releasePreloadPropData(ped: number): void { ReleasePedPreloadPropData(ped); }
 
   getPropIndex(ped: number, componentId: number): number { return GetPedPropIndex(ped, componentId); }
-  setPropIndex(ped: number, componentId: number, drawableId: number, TextureId: number, attach: boolean): void { SetPedPropIndex(ped, componentId, drawableId, TextureId, attach); }
+  setPropIndex(ped: number, componentId: number, drawableId: number, TextureId: number, attach: boolean): void { setCompatiblePropIndex(ped, componentId, drawableId, TextureId, attach); }
   clearProp(ped: number, propId: number): void { ClearPedProp(ped, propId); }
   dropAmbientProp(ped: number): void { DropAmbientProp(ped); }
   getPropTextureIndex(ped: number, componentId: number): number { return GetPedPropTextureIndex(ped, componentId); }

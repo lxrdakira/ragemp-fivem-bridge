@@ -1,11 +1,48 @@
 import { Entity } from "./Entity.js";
+import { INVALID_REMOTE_ID } from "./internal/entityInternals.js";
 
 export const NET_REF_KEY = "__mpRef";
 
 export type NetResolve = (type: string, id: number, netId?: number) => Entity | null | undefined;
 
+const ENTITY_TYPES = new Set([
+  "player", "vehicle", "object", "ped", "colshape", "checkpoint",
+  "blip", "marker", "textlabel", "label", "pickup", "dummy",
+]);
+
+function isEntityLike(value: object): value is Entity {
+  try {
+    const candidate = value as unknown as { type?: unknown; id?: unknown; remoteId?: unknown; handle?: unknown };
+    return typeof candidate.type === "string" &&
+      ENTITY_TYPES.has(candidate.type.toLowerCase()) &&
+      (typeof candidate.remoteId === "number" || typeof candidate.id === "number") &&
+      typeof candidate.handle === "number";
+  } catch (_) {
+    return false;
+  }
+}
+
 function entityToRef(entity: Entity): Record<string, unknown> {
-  const ref: Record<string, unknown> = { [NET_REF_KEY]: entity.type, id: entity.id };
+  const candidate = entity as unknown as {
+    type: string;
+    id: number;
+    remoteId?: number;
+    netId?: number;
+    getVariable?: (key: string) => unknown;
+  };
+  let id = typeof candidate.remoteId === "number" ? candidate.remoteId : candidate.id;
+
+  // Last line of defence for an entity observed by the world scanner before
+  // the registry event. The authoritative id is replicated in the state bag;
+  // use it directly even if a legacy caller still holds the old wrapper.
+  if ((id <= 0 || id === INVALID_REMOTE_ID) &&
+      (candidate.type === "vehicle" || candidate.type === "object" || candidate.type === "ped")) {
+    try {
+      const stateId = Number(candidate.getVariable?.("__bridgeRemoteId"));
+      if (Number.isInteger(stateId) && stateId > 0 && stateId < INVALID_REMOTE_ID) id = stateId;
+    } catch (_) {}
+  }
+  const ref: Record<string, unknown> = { [NET_REF_KEY]: candidate.type, id };
   try {
     const netId = (entity as unknown as { netId?: number }).netId;
     if (netId !== undefined && netId !== null) ref.netId = netId;
@@ -15,7 +52,10 @@ function entityToRef(entity: Entity): Record<string, unknown> {
 
 export function sanitizeForNet(value: unknown, seen?: WeakSet<object>): unknown {
   if (value === null || typeof value !== "object") return value;
-  if (value instanceof Entity) return entityToRef(value);
+  // `instanceof` is insufficient when a legacy bundle embeds another copy of
+  // the shared package. Duck-typing keeps those bridge entities intact instead
+  // of flattening them to the enumerable `{ id }` field.
+  if (value instanceof Entity || isEntityLike(value)) return entityToRef(value as Entity);
 
   if (!seen) seen = new WeakSet();
   if (seen.has(value)) return null;

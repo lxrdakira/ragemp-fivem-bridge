@@ -43,12 +43,11 @@ namespace RageMP.FiveM.Bridge.Host
             player.SocialClubId = HashIdentifier(player.Serial);
             player.Address = API.GetPlayerEndpoint(source.Handle) ?? string.Empty;
             var dimension = unchecked((uint)API.GetPlayerRoutingBucket(source.Handle));
-            try
-            {
-                var position = source.Character.Position;
-                player.ApplyNetworkState(new Vector3(position.X, position.Y, position.Z), 0f, 100, 0, source.Ping, dimension);
-            }
-            catch { player.ApplyNetworkState(new Vector3(), 0f, 100, 0, source.Ping, dimension); }
+            // Do not resolve source.Character during the ready transition. FiveM
+            // Enhanced may expose the player source before its ped is networked;
+            // touching that native entity can terminate Mono instead of throwing.
+            // The first ragemp:playerState packet supplies the real position.
+            player.ApplyNetworkState(new Vector3(), 0f, 100, 0, source.Ping, dimension);
             RAGE.Entities.Players.Register(player);
             return player;
         }

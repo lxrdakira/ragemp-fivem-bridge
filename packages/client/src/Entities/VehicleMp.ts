@@ -174,6 +174,7 @@ export class VehicleMp extends EntityMpBase {
   getPedUsingDoor(doorIndex: number): number { return GetPedUsingVehicleDoor(this.handle, doorIndex); }
   isDoorDamaged(doorId: number): boolean { return IsVehicleDoorDamaged(this.handle, doorId); }
   setDoorBroken(doorIndex: number, createDoorObject: boolean): void { SetVehicleDoorBroken(this.handle, doorIndex, !!createDoorObject); }
+  setDoorBreakable(doorIndex: number, isBreakable: boolean): void { SetVehicleDoorCanBreak(this.handle, doorIndex, !!isBreakable); }
   setDoorControl(doorIndex: number, speed: number, angle: number): void { SetVehicleDoorControl(this.handle, doorIndex, speed, angle); }
   setDoorLatched(doorIndex: number, toggle: boolean, autoLatch: boolean, applyForce: boolean): void { SetVehicleDoorLatched(this.handle, doorIndex, !!toggle, !!autoLatch, !!applyForce); }
   setDoorOpen(doorIndex: number, loose: boolean, openInstantly: boolean): void { SetVehicleDoorOpen(this.handle, doorIndex, !!loose, openInstantly ?? false); }
@@ -350,7 +351,9 @@ export class VehicleMp extends EntityMpBase {
   raiseConvertibleRoof(instantlyRaise: boolean): void { RaiseConvertibleRoof(this.handle, !!instantlyRaise); }
 
   getExtra(extraId: number): boolean { return IsVehicleExtraTurnedOn(this.handle, extraId); }
-  setExtra(extraId: number, state: number): void { SetVehicleExtra(this.handle, extraId, !state); }
+  // RAGE client API uses `disabled` (false enables), just like the native.
+  // Only the server API/snapshot uses an enabled state that needs inversion.
+  setExtra(extraId: number, disabled: boolean | number): void { SetVehicleExtra(this.handle, extraId, !!disabled); }
   doesExtraExist(extraId: number): boolean { return DoesExtraExist(this.handle, extraId); }
   isExtraTurnedOn(extraId: number): boolean { return IsVehicleExtraTurnedOn(this.handle, extraId); }
 

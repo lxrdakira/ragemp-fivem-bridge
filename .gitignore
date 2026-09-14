@@ -2,6 +2,9 @@ node_modules
 dist
 .turbo
 
+# Local deployment snapshots (may contain bundled game resources)
+/artifacts/
+
 # Per-example outputs
 examples/*/dist
 examples/*/node_modules

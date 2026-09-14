@@ -6,9 +6,13 @@ import * as vehicleSync from "./Plugins/builtin/vehicle-sync";
 import { setLocalDimension } from "./utils/dimension";
 import { safeGetEntityFromNetId } from "./utils/netId";
 import { getChatBrowser } from "./internal/browserInternals";
+import { installDefaultVehicleEnteringCompatibility } from "./internal/defaultVehicleEntering";
+import { setCompatibleComponentVariation, setCompatiblePropIndex } from "./utils/clothingCompatibility";
+import { setPlayerModelIfDifferent } from "./utils/playerModel";
 
 if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "library") {
   globalThis.mp = new Mp();
+  installDefaultVehicleEnteringCompatibility();
 
   setPoolLifecycleSink((type, entity) => globalThis.mp?.events?.call(type, entity));
 
@@ -123,16 +127,7 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
   }
 
   function applyOneClothes(ped: number, component: number, c: [number, number, number]): boolean {
-    let d = c[0] | 0;
-    if (d < 0) d = 0;
-    let t = c[1] | 0;
-    if (t < 0) t = 0;
-    const maxD = GetNumberOfPedDrawableVariations(ped, component);
-    if (!maxD || d >= maxD) return false;
-    const maxT = GetNumberOfPedTextureVariations(ped, component, d);
-    if (maxT > 0 && t >= maxT) t = 0;
-    SetPedComponentVariation(ped, component, d, t, c[2] | 0);
-    return true;
+    return setCompatibleComponentVariation(ped, component, c[0], c[1], c[2]);
   }
 
   function applyAllClothes(): boolean {
@@ -149,11 +144,7 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
     const ped = PlayerPedId();
     if (!ped || ped === 0) return false;
     for (const [prop, v] of _propsState) {
-      if (v[0] < 0) {
-        ClearPedProp(ped, prop);
-      } else {
-        SetPedPropIndex(ped, prop, v[0], v[1], true);
-      }
+      if (!setCompatiblePropIndex(ped, prop, v[0], v[1], true)) return false;
     }
     return true;
   }
@@ -211,9 +202,9 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
       if (HasModelLoaded(model)) {
         clearInterval(timer);
         if (_modelTimer === timer) _modelTimer = null;
-        SetPlayerModel(PlayerId(), model);
+        const modelChanged = setPlayerModelIfDifferent(PlayerId(), model);
         SetModelAsNoLongerNeeded(model);
-        SetPedDefaultComponentVariation(PlayerPedId());
+        if (modelChanged) SetPedDefaultComponentVariation(PlayerPedId());
         reapplyAppearance();
         setTimeout(reapplyAppearance, 250);
       } else if (++tries > 100) {
@@ -227,10 +218,7 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
   onNet("ragemp:setProp", (prop: number, drawable: number, texture: number) => {
     _propsState.set(prop, [drawable, texture]);
     const ped = PlayerPedId();
-    if (ped && ped !== 0) {
-      if (drawable < 0) ClearPedProp(ped, prop);
-      else SetPedPropIndex(ped, prop, drawable, texture, true);
-    }
+    if (ped && ped !== 0) setCompatiblePropIndex(ped, prop, drawable, texture, true);
   });
 
   onNet("ragemp:setEyeColor", (index: number) => {

@@ -1,12 +1,13 @@
 import { Vector3 } from "@ragemp-fivem-bridge/shared";
 import { createUnkProxy, toVec3 } from "./_helpers.js";
+import { setPlayerModelIfDifferent } from "../utils/playerModel";
 
 export class GamePlayerNs {
   unk = createUnkProxy();
 
   getPed(player: number): number { return GetPlayerPed(player); }
   getPedScriptIndex(player: number): number { return GetPlayerPed(player); }
-  setModel(player: number, model: number): void { SetPlayerModel(player, model); }
+  setModel(player: number, model: number): void { setPlayerModelIfDifferent(player, model); }
   getIndex(player: number): number { return player; }
   getName(player: number): string { return GetPlayerName(player); }
 

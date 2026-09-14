@@ -12,6 +12,18 @@ interface ColshapePoolRec {
   warned: boolean;
 }
 
+const RAGE_GROUND_Z_COMPENSATION = 1.12;
+
+function containsWithLegacyZCompatibility(colshape: ColshapeMp, point: Vector3): boolean {
+  if (colshape.isPointWithin(point)) return true;
+
+  // Old content contains both pre-corrected ground coordinates and raw
+  // player-origin coordinates saved about 1.12 m higher. Check only the
+  // vertical alternatives so the horizontal interaction radius is unchanged.
+  return colshape.isPointWithin(new Vector3(point.x, point.y, point.z - RAGE_GROUND_Z_COMPENSATION))
+    || colshape.isPointWithin(new Vector3(point.x, point.y, point.z + RAGE_GROUND_Z_COMPENSATION));
+}
+
 const ColshapePoolInternals = defineInternals<ColshapePoolRec>();
 
 function createFromData(pool: ColshapeMpPool, data: any): ColshapeMp {
@@ -57,7 +69,7 @@ function scan(pool: ColshapeMpPool): void {
     const rec = ColshapeInternals.get(colshape);
     let inside: boolean;
     try {
-      inside = isVisibleHere(rec.dimension) && colshape.isPointWithin(localPos);
+      inside = isVisibleHere(rec.dimension) && containsWithLegacyZCompatibility(colshape, localPos);
     } catch (e) {
       if (!poolRec.warned) {
         poolRec.warned = true;

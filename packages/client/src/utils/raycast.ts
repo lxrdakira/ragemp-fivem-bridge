@@ -7,7 +7,7 @@ interface RaycastResult {
   hit: boolean;
   position: Vector3;
   surfaceNormal: Vector3;
-  entity: number;
+  entity: any;
 }
 
 function num(v: unknown): number {
@@ -31,8 +31,64 @@ function entityHandle(e: EntityLike): number {
   return e.handle ?? e.id ?? 0;
 }
 
+function resolveEntity(handle: number): any {
+  if (!handle) return 0;
+
+  const mp = (globalThis as any).mp;
+  try {
+    if (IsEntityAVehicle(handle)) {
+      return mp?.vehicles?.atHandle?.(handle) ?? handle;
+    }
+    if (IsEntityAPed(handle)) {
+      return mp?.players?.atHandle?.(handle)
+        ?? mp?.peds?.atHandle?.(handle)
+        ?? handle;
+    }
+    if (IsEntityAnObject(handle)) {
+      return mp?.objects?.atHandle?.(handle) ?? handle;
+    }
+  } catch (_) {}
+
+  return handle;
+}
+
+function nearestVehicleOnRay(startPos: VecLike, endPos: VecLike, flags?: number): any | null {
+  const mask = flags == null ? -1 : flags;
+  if ((mask & 2) === 0) return null;
+
+  const mp = (globalThis as any).mp;
+  const vehicles = mp?.vehicles?.streamed ?? mp?.vehicles?.toArray?.() ?? [];
+  const sx = vx(startPos), sy = vy(startPos), sz = vz(startPos);
+  const dx = vx(endPos) - sx, dy = vy(endPos) - sy, dz = vz(endPos) - sz;
+  const lengthSquared = dx * dx + dy * dy + dz * dz;
+  if (lengthSquared < 0.001) return null;
+
+  let best: any | null = null;
+  let bestAlong = Number.POSITIVE_INFINITY;
+  for (const vehicle of vehicles) {
+    try {
+      if (!vehicle || !vehicle.handle || !vehicle.doesExist()) continue;
+      const p = vehicle.position;
+      const px = p.x - sx, py = p.y - sy, pz = p.z - sz;
+      const along = (px * dx + py * dy + pz * dz) / lengthSquared;
+      if (along < 0 || along > 1 || along >= bestAlong) continue;
+      const cx = sx + dx * along, cy = sy + dy * along, cz = sz + dz * along;
+      const ox = p.x - cx, oy = p.y - cy, oz = p.z - cz;
+      // A vehicle ray should hit its collision, but custom streamed models can
+      // report no hit for a frame. A 2.4 m cone is a conservative car width.
+      if (ox * ox + oy * oy + oz * oz > 2.4 * 2.4) continue;
+      best = vehicle;
+      bestAlong = along;
+    } catch (_) {}
+  }
+  return best;
+}
+
 export function testPointToPoint(startPos: VecLike, endPos: VecLike, ignoreEntity: EntityLike, flags?: number): RaycastResult {
-  const handle = StartShapeTestRay(
+  // mp.raycasting.testPointToPoint is synchronous. StartShapeTestRay is not:
+  // reading it immediately commonly returns state 1 with entity 0. Use the
+  // synchronous LOS probe so legacy callers receive the hit in this call.
+  const handle = StartExpensiveSynchronousShapeTestLosProbe(
     vx(startPos),
     vy(startPos),
     vz(startPos),
@@ -44,11 +100,15 @@ export function testPointToPoint(startPos: VecLike, endPos: VecLike, ignoreEntit
     0
   );
   const [, hit, endCoords, surfaceNormal, entityHit] = GetShapeTestResult(handle);
+  const entity = resolveEntity(entityHit);
+  const fallbackVehicle = (!entity || typeof entity === "number")
+    ? nearestVehicleOnRay(startPos, endPos, flags)
+    : null;
   return {
     hit: !!hit,
-    position: new Vector3(endCoords[0], endCoords[1], endCoords[2]),
+    position: fallbackVehicle?.position ?? new Vector3(endCoords[0], endCoords[1], endCoords[2]),
     surfaceNormal: new Vector3(surfaceNormal[0], surfaceNormal[1], surfaceNormal[2]),
-    entity: entityHit,
+    entity: fallbackVehicle ?? entity,
   };
 }
 
@@ -70,6 +130,6 @@ export function testCapsule(startPos: VecLike, endPos: VecLike, radius: number, 
     hit: !!hit,
     position: new Vector3(endCoords[0], endCoords[1], endCoords[2]),
     surfaceNormal: new Vector3(surfaceNormal[0], surfaceNormal[1], surfaceNormal[2]),
-    entity: entityHit,
+    entity: resolveEntity(entityHit),
   };
 }

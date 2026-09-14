@@ -20,6 +20,30 @@ namespace RageMP.FiveM.Bridge
         private static object? SanitizeValue(object? value, HashSet<object> seen)
         {
             if (value == null || value is string || value.GetType().IsValueType) return value;
+            // CitizenFX's fallback object serializer reflects every public
+            // property. GTANetworkAPI.Vector3 has a computed Normalized property
+            // returning another Vector3, which causes unbounded recursion and an
+            // unmanaged Mono stack overflow. RAGE sends vectors as plain XYZ
+            // objects, so materialize that wire contract explicitly.
+            if (value is Vector3 vector)
+            {
+                return new Dictionary<string, object>
+                {
+                    ["X"] = vector.X,
+                    ["Y"] = vector.Y,
+                    ["Z"] = vector.Z
+                };
+            }
+            if (value is Color color)
+            {
+                return new Dictionary<string, object>
+                {
+                    ["Red"] = color.Red,
+                    ["Green"] = color.Green,
+                    ["Blue"] = color.Blue,
+                    ["Alpha"] = color.Alpha
+                };
+            }
             if (value is NetHandle handle) return SanitizeValue(RAGE.Entities.Resolve(handle), seen);
             if (value is Entity entity) return EntityReference(entity);
             if (!seen.Add(value)) return null;

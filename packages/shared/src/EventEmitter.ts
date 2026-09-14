@@ -2,6 +2,8 @@ import { EventEmitterInternals, initEventEmitterInternals, type EventHandler } f
 
 export type { EventHandler };
 
+let traceNextRenderDispatch = false;
+
 export abstract class EventEmitter {
   constructor() {
     initEventEmitterInternals(this);
@@ -10,9 +12,19 @@ export abstract class EventEmitter {
   call(eventName: string, ...args: any[]): void {
     const handlers = EventEmitterInternals.get(this).handlers.get(eventName);
     if (!handlers) return;
+
+    const traceDispatch = eventName === "client:OnBrowserInit" || (eventName === "render" && traceNextRenderDispatch);
+    if (eventName === "render" && traceNextRenderDispatch) traceNextRenderDispatch = false;
+
+    let index = 0;
     for (const handler of handlers) {
+      if (traceDispatch) console.log(`[bridge:event-trace] start ${eventName} #${index} ${handler.name || "anonymous"}`);
       handler(...args);
+      if (traceDispatch) console.log(`[bridge:event-trace] end ${eventName} #${index}`);
+      index += 1;
     }
+
+    if (eventName === "client:OnBrowserInit") traceNextRenderDispatch = true;
   }
 
   add(eventNameOrObject: string | Record<string, EventHandler>, handler?: EventHandler): void {

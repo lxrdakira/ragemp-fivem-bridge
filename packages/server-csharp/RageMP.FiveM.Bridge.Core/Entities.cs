@@ -37,6 +37,7 @@ namespace GTANetworkAPI
         public int NativeHandle { get; internal set; }
         public int NetworkId { get; internal set; }
         internal bool NetworkPublished { get; set; }
+        internal string PublishedVehiclePlate { get; set; } = string.Empty;
         protected void SyncNetworkState() => EntityNetworkSync.Update(this);
 
         internal void ApplyNetworkTransform(Vector3 position, Vector3 rotation, uint dimension)
@@ -69,6 +70,7 @@ namespace GTANetworkAPI
             }
             _sharedData[key] = value;
             BridgeRuntime.Current.SetSharedData(this, key, value);
+            EntityNetworkSync.SharedDataChanged(this, key, value);
         }
         public void SetSharedData(Dictionary<string, object> values)
         {
@@ -78,6 +80,7 @@ namespace GTANetworkAPI
         {
             _sharedData.TryRemove(key, out _);
             BridgeRuntime.Current.ResetSharedData(this, key);
+            EntityNetworkSync.SharedDataChanged(this, key, null);
         }
 
         public virtual void Delete()

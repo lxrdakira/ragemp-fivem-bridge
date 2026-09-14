@@ -15,6 +15,7 @@ namespace RageMP.FiveM.Bridge
         void SendChatMessage(Player player, string message);
         void Kick(Player player, string reason);
         NetworkEntityReference CreateNetworkEntity(Entity entity);
+        int ResolveNetworkEntityHandle(int networkId);
         void UpdateNetworkEntity(Entity entity);
         void DeleteNetworkEntity(Entity entity);
         void SetPlayerDimension(Player player, uint dimension);
@@ -45,6 +46,7 @@ namespace RageMP.FiveM.Bridge
             public void SendChatMessage(Player player, string message) => NotConfigured();
             public void Kick(Player player, string reason) => NotConfigured();
             public NetworkEntityReference CreateNetworkEntity(Entity entity) { NotConfigured(); return new NetworkEntityReference(); }
+            public int ResolveNetworkEntityHandle(int networkId) => 0;
             public void UpdateNetworkEntity(Entity entity) => NotConfigured();
             public void DeleteNetworkEntity(Entity entity) => NotConfigured();
             public void SetPlayerDimension(Player player, uint dimension) => NotConfigured();

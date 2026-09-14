@@ -4,6 +4,7 @@ import { PedMpBase } from "./PedMpBase";
 import { toVec3 } from "../utils/vec";
 import { getLocalDimension } from "../utils/dimension";
 import { PlayerInternals, initPlayerInternals, getPlayerServerId } from "../internal/playerInternals";
+import { setPlayerModelIfDifferent } from "../utils/playerModel";
 
 // Voice FX parameter shapes (from ragemp d.ts)
 interface VoiceFxChorus { fWetDryMix: number; fDepth: number; fFeedback: number; fFrequency: number; lWaveform: number; fDelay: number; lPhase: number; }
@@ -26,6 +27,12 @@ export class PlayerMp extends PedMpBase {
   }
 
   get ped(): number {
+    // SET_PLAYER_MODEL replaces the local ped while keeping the player index.
+    // During auth/respawn GetPlayerPed(index) can briefly point at the retired
+    // preview ped, so every local entity operation must resolve PlayerPedId().
+    if ((globalThis as any).mp?.players?.local === this && typeof PlayerPedId === "function") {
+      return PlayerPedId();
+    }
     const playerIndex = PlayerInternals.get(this).playerIndex;
     return playerIndex >= 0 ? GetPlayerPed(playerIndex) : 0;
   }
@@ -34,6 +41,39 @@ export class PlayerMp extends PedMpBase {
   }
   override get handle(): number {
     return this.ped;
+  }
+
+  override freezePosition(toggle: boolean): void {
+    // SET_PLAYER_MODEL replaces the local ped.  The RAGE wrapper can still
+    // resolve the previous player-index ped for a short time after character
+    // selection, leaving the actual PlayerPedId frozen by the auth preview.
+    // Always target the live local ped here; remote players keep the normal
+    // entity implementation.
+    const isLocalPlayer = (globalThis as any).mp?.players?.local === this;
+    if (!isLocalPlayer) {
+      super.freezePosition(toggle);
+      return;
+    }
+
+    const ped = PlayerPedId();
+    if (!ped || !DoesEntityExist(ped)) return;
+    FreezeEntityPosition(ped, !!toggle);
+  }
+
+  // RAGE:MP scripts assign player.model directly (the /tsc clothes editor does
+  // this when switching gender). EntityMpBase exposes a native getter only, so
+  // keep an explicit setter for the local player instead of silently ignoring
+  // the assignment in JavaScript.
+  override get model(): number {
+    return GetEntityModel(this.ped);
+  }
+  override set model(value: number) {
+    const hash = typeof value === "string" ? GetHashKey(value) : value;
+    // FiveM/BestMP can crash inside SET_PLAYER_MODEL when the same freemode
+    // model is assigned again while addon clothing YMTs are mounted. RAGE:MP
+    // scripts do this in /tsc, so make identical assignments idempotent.
+    if ((GetEntityModel(this.ped) >>> 0) === (hash >>> 0)) return;
+    this.setModel(hash);
   }
 
   get name(): string {
@@ -49,6 +89,17 @@ export class PlayerMp extends PedMpBase {
   }
   override set dimension(value: number) {
     PlayerInternals.get(this).dimension = value;
+  }
+
+  override setInvincible(toggle: boolean): void {
+    // The Neptune world/green-zone bootstrap can request invincibility while
+    // the authorization screen is still open. On game build 3889 the
+    // placeholder local ped already passes DoesEntityExist, but its gameplay
+    // state is incomplete and SET_ENTITY_INVINCIBLE crashes inside GTA.
+    // RAGE only applied this after authorization; preserve that contract here.
+    const isLocalPlayer = (globalThis as any).mp?.players?.local === this;
+    if (isLocalPlayer && (globalThis as any).loggedin !== true) return;
+    super.setInvincible(toggle);
   }
 
   get vehicle(): any {
@@ -180,7 +231,7 @@ export class PlayerMp extends PedMpBase {
   setMeleeWeaponDamageModifier(modifier: number): void { (SetPlayerMeleeWeaponDamageModifier as any)(PlayerInternals.get(this).playerIndex, modifier, false); }
   setModel(model: number | string): void {
     const hash = typeof model === "string" ? GetHashKey(model) : model;
-    SetPlayerModel(PlayerInternals.get(this).playerIndex, hash);
+    setPlayerModelIfDifferent(PlayerInternals.get(this).playerIndex, hash);
   }
   setNoiseMultiplier(multiplier: number): void { SetPlayerNoiseMultiplier(PlayerInternals.get(this).playerIndex, multiplier); }
   setParachuteModelOverride(model: number): void { SetPlayerParachuteModelOverride(PlayerInternals.get(this).playerIndex, model); }

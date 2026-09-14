@@ -1,5 +1,6 @@
 import { registerBrowserProcChannel, browserDomReady } from "../browserInternals";
 import type { BrowserMpPool } from "../../Pools/BrowserMpPool";
+import { installHostNuiFetchCompatibility, registerNuiCallback } from "../nuiCallback";
 
 function formatError(info: any): string {
   const id = info && info.browserId;
@@ -27,15 +28,30 @@ function callCancelable(eventName: string, ...args: any[]): boolean {
   return cancelled;
 }
 
-async function callWithResult(eventName: string, ...args: any[]): Promise<any> {
+function callWithResult(eventName: string, ...args: any[]): any {
   const events = globalThis.mp?.events;
   if (!events) return undefined;
   let result: any = undefined;
+  let pending: Promise<void> | null = null;
   for (const handler of events.getAllOf?.(eventName) ?? []) {
-    const value = await handler(...args);
-    if (value !== undefined) result = value;
+    if (pending) {
+      pending = pending.then(async () => {
+        const value = await handler(...args);
+        if (value !== undefined) result = value;
+      });
+      continue;
+    }
+
+    const value = handler(...args);
+    if (value && typeof value.then === "function") {
+      pending = Promise.resolve(value).then((resolved) => {
+        if (resolved !== undefined) result = resolved;
+      });
+    } else if (value !== undefined) {
+      result = value;
+    }
   }
-  return result;
+  return pending ? pending.then(() => result) : result;
 }
 
 function findBrowser(pool: BrowserMpPool, id: unknown) {
@@ -45,25 +61,22 @@ function findBrowser(pool: BrowserMpPool, id: unknown) {
 
 export function setupBrowserPool(pool: BrowserMpPool): void {
   registerBrowserProcChannel();
+  installHostNuiFetchCompatibility();
 
   on("onResourceStop", (name: string) => {
     if (name !== GetCurrentResourceName()) return;
     for (const browser of pool.toArray()) browser.destroy();
   });
 
-  if (typeof RegisterNuiCallbackType !== "function") return;
-
-  RegisterNuiCallbackType("ragemp:browserError");
-  on("__cfx_nui:ragemp:browserError", (data: any, cb: (result: Record<string, never>) => void) => {
+  if (!registerNuiCallback("ragemp:browserError", (data: any, cb: (result: Record<string, never>) => void) => {
     const browser = findBrowser(pool, data && data.browserId);
     console.error(formatError(data));
     if (data && data.stack) console.error(data.stack);
     globalThis.mp?.events?.call("browserError", browser ?? null, data);
     cb({});
-  });
+  })) return;
 
-  RegisterNuiCallbackType("ragemp:browserLifecycle");
-  on("__cfx_nui:ragemp:browserLifecycle", (data: any, cb: (result: Record<string, never>) => void) => {
+  registerNuiCallback("ragemp:browserLifecycle", (data: any, cb: (result: Record<string, never>) => void) => {
     const browser = findBrowser(pool, data && data.browserId);
     if (!browser) {
       cb({});
@@ -81,9 +94,11 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
     cb({});
   });
 
-  RegisterNuiCallbackType("ragemp:browserEvent");
-  on("__cfx_nui:ragemp:browserEvent", async (data: any, cb: (result: Record<string, unknown>) => void) => {
+  registerNuiCallback("ragemp:browserEvent", (data: any, cb: (result: Record<string, unknown>) => void) => {
     const { event, args } = data;
+    if (event === "Authorization-Login" || event === "__codexAuthTransportProbe") {
+      console.log(`[ragemp:nui] received browser event ${event}`);
+    }
     if (event === "command") {
       const command = String(args?.[0] ?? "").trim();
       if (command && !callCancelable("playerCommand", command)) {
@@ -108,8 +123,20 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
     }
     if (event && globalThis.mp?.events) {
       try {
-        const result = await callWithResult(event, ...(args ?? []));
-        cb({ result });
+        const result = callWithResult(event, ...(args ?? []));
+        if (result && typeof result.then === "function") {
+          Promise.resolve(result)
+            .then((resolved) => cb({ result: resolved }))
+            .catch((error) => {
+              console.error(`[ragemp:${event}] browser handler error`, error);
+              cb({ error: error instanceof Error ? error.message : String(error) });
+            });
+        } else {
+          // FiveM NUI callbacks must be completed in the originating event turn
+          // for ordinary synchronous RAGE:MP handlers. Deferring this through an
+          // unconditional await leaves CEF fetch() pending on some runtimes.
+          cb({ result });
+        }
       } catch (error) {
         console.error(`[ragemp:${event}] browser handler error`, error);
         cb({ error: error instanceof Error ? error.message : String(error) });
@@ -118,4 +145,5 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
     }
     cb({});
   });
+  console.log(`[ragemp:nui] direct-compatible browser callbacks registered in ${GetCurrentResourceName()}`);
 }

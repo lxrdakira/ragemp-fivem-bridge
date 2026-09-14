@@ -20,9 +20,10 @@ namespace RageMP.FiveM.Bridge.Host
         private readonly PlayerFactory _players = new PlayerFactory();
         private bool _initialized;
         private readonly HashSet<ushort> _connectedPlayers = new HashSet<ushort>();
-        private readonly Dictionary<string, string> _pendingClientReady = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, (CitizenFX.Core.Player Player, string ResourceName)> _pendingClientReady = new Dictionary<string, (CitizenFX.Core.Player, string)>(StringComparer.Ordinal);
         private readonly HashSet<string> _readyClientHandles = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _bootstrappingClientHandles = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _disconnectedClientHandles = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, List<(string EventName, object[] Arguments)>> _pendingClientEvents = new Dictionary<string, List<(string, object[])>>(StringComparer.Ordinal);
         private string[] _variadicRemoteEvents = Array.Empty<string>();
         private object[] _remoteEventContracts = Array.Empty<object>();
@@ -30,6 +31,7 @@ namespace RageMP.FiveM.Bridge.Host
         private readonly ConcurrentDictionary<int, PendingClientProcedure> _pendingClientProcedures = new ConcurrentDictionary<int, PendingClientProcedure>();
         private readonly ConcurrentQueue<ScheduledAction> _scheduledInbound = new ConcurrentQueue<ScheduledAction>();
         private readonly SortedDictionary<long, Queue<Action>> _scheduledByDue = new SortedDictionary<long, Queue<Action>>();
+        private readonly Dictionary<ushort, long> _nextPlayerScopeAuditTicks = new Dictionary<ushort, long>();
         private int _clientProcedureRequestId;
         private long _nextNativeEntityRefreshTicks;
 
@@ -44,9 +46,13 @@ namespace RageMP.FiveM.Bridge.Host
             EventHandlers["ragemp:command"] += new Action<CitizenFX.Core.Player, string>(OnCommand);
             EventHandlers["ragemp:chat:message"] += new Action<CitizenFX.Core.Player, string>(OnChatMessage);
             EventHandlers["ragemp:playerSpawn"] += new Action<CitizenFX.Core.Player>(OnPlayerSpawn);
-            EventHandlers["ragemp:playerDeath"] += new Action<CitizenFX.Core.Player, uint, object?>(OnPlayerDeath);
-            EventHandlers["ragemp:csharp:playerDamage"] += new Action<CitizenFX.Core.Player, int, uint, int>(OnPlayerDamage);
-            EventHandlers["ragemp:playerWeaponChange"] += new Action<CitizenFX.Core.Player, uint, uint>(OnPlayerWeaponChange);
+            // CitizenFX transports JS numbers as signed/64-bit values. Weapon
+            // hashes above Int32.MaxValue used to fail inside the event binder
+            // before our handler was reached, so receive them losslessly and
+            // normalize to the RAGE uint contract here.
+            EventHandlers["ragemp:playerDeath"] += new Action<CitizenFX.Core.Player, long, object?>(OnPlayerDeath);
+            EventHandlers["ragemp:csharp:playerDamage"] += new Action<CitizenFX.Core.Player, int, long, int>(OnPlayerDamage);
+            EventHandlers["ragemp:playerWeaponChange"] += new Action<CitizenFX.Core.Player, int, int>(OnPlayerWeaponChange);
             EventHandlers["ragemp:playerReady"] += new Action<CitizenFX.Core.Player, string>(OnPlayerReady);
             EventHandlers["ragemp:clientNotReady"] += new Action<CitizenFX.Core.Player, string>(OnClientNotReady);
             EventHandlers["ragemp:playerState"] += new Action<CitizenFX.Core.Player, float, float, float, float, int, int, bool, int, int>(OnPlayerState);
@@ -57,6 +63,8 @@ namespace RageMP.FiveM.Bridge.Host
             EventHandlers["ragemp:vehicleHealthReport"] += new Action<CitizenFX.Core.Player, int, float, float>(OnVehicleHealthReport);
             EventHandlers["ragemp:vehicleDeath"] += new Action<CitizenFX.Core.Player, int>(OnVehicleDeath);
             EventHandlers["ragemp:vehicleClassReport"] += new Action<CitizenFX.Core.Player, int, int, string>(OnVehicleClassReport);
+            EventHandlers["ragemp:entity:resolve"] += new Action<CitizenFX.Core.Player, string, int>(OnEntityResolve);
+            EventHandlers["ragemp:entity:refresh"] += new Action<CitizenFX.Core.Player, string, int>(OnEntityRefresh);
             EventHandlers["ragemp:colshape:enter"] += new Action<CitizenFX.Core.Player, int>(OnColshapeEnter);
             EventHandlers["ragemp:colshape:exit"] += new Action<CitizenFX.Core.Player, int>(OnColshapeExit);
             EventHandlers["ragemp:callProcResult"] += new Action<CitizenFX.Core.Player, int, string?, object?>(OnClientProcedureResult);
@@ -68,6 +76,7 @@ namespace RageMP.FiveM.Bridge.Host
 
         internal void TriggerClientEventWhenReady(CitizenFX.Core.Player player, string eventName, object[] arguments)
         {
+            if (_disconnectedClientHandles.Contains(player.Handle)) return;
             if (_readyClientHandles.Contains(player.Handle) || _bootstrappingClientHandles.Contains(player.Handle))
             {
                 BaseScript.TriggerClientEvent(player, eventName, arguments);
@@ -87,8 +96,12 @@ namespace RageMP.FiveM.Bridge.Host
 
         internal void TriggerClientEventForReadyPlayers(string eventName, object[] arguments)
         {
-            foreach (var player in Players)
-                TriggerClientEventWhenReady(player, eventName, arguments);
+            // Broadcast through CitizenFX directly. Enumerating PlayerList while
+            // a client is joining or reconnecting can cross a stale native player
+            // entry and terminate the whole Mono host with SIGSEGV. FiveM's
+            // broadcast overload performs the same fan-out inside the runtime
+            // without materializing managed Player wrappers.
+            BaseScript.TriggerClientEvent(eventName, arguments);
         }
 
         internal Task Schedule(Action action, long delayMilliseconds)
@@ -270,25 +283,24 @@ namespace RageMP.FiveM.Bridge.Host
             Tick += DispatchUpdateTick;
             _initialized = true;
 
-            foreach (var citizenPlayer in Players)
-                await DispatchPlayerConnected(citizenPlayer);
-
             foreach (var ready in _pendingClientReady.ToArray())
-            {
-                var citizenPlayer = Players.FirstOrDefault(player => player.Handle == ready.Key);
-                if (citizenPlayer != null) SendClientBootstrap(citizenPlayer, ready.Value);
-            }
+                await CompletePlayerReady(ready.Value.Player, ready.Value.ResourceName);
             _pendingClientReady.Clear();
         }
 
         private void OnPlayerJoining([FromSource] CitizenFX.Core.Player source)
         {
-            if (!_initialized) return;
-            _ = DispatchPlayerConnected(source);
+            _disconnectedClientHandles.Remove(source.Handle);
+            // playerJoining fires before the client resource and, on Enhanced,
+            // sometimes before a usable player ped exists. Legacy PlayerConnected
+            // handlers perform native entity work, so dispatch them only after the
+            // bridge client explicitly confirms ragemp:playerReady.
+            Debug.WriteLine($"[ragemp-csharp] player joining source={source.Handle}; waiting for client ready");
         }
 
         private void OnPlayerDropped([FromSource] CitizenFX.Core.Player source, string reason)
         {
+            if (!_disconnectedClientHandles.Add(source.Handle)) return;
             _pendingClientReady.Remove(source.Handle);
             _readyClientHandles.Remove(source.Handle);
             _bootstrappingClientHandles.Remove(source.Handle);
@@ -299,14 +311,31 @@ namespace RageMP.FiveM.Bridge.Host
                 pending.Completion.TrySetException(new InvalidOperationException("Player disconnected during client procedure: " + pending.Name));
             }
             if (!_players.Remove(source, out var player) || player == null) return;
+            _nextPlayerScopeAuditTicks.Remove(player.Id);
             _connectedPlayers.Remove(player.Id);
             if (player.Vehicle != null) player.Vehicle.Occupants.Remove(player);
             player.Vehicle = null;
             player.VehicleSeat = -1;
             foreach (var ped in RAGE.Entities.Peds.All)
                 if (ped.Controller == player) ped.Controller = null;
-            BaseScript.TriggerClientEvent("ragemp:player:unmap", player.Id);
-            _ = _dispatcher.DispatchServerAsync(Event.PlayerDisconnected, player, DisconnectionType.Left, reason ?? string.Empty);
+            // Neptune's disconnect path fans out into dozens of legacy handlers.
+            // Running that whole chain inside CitizenFX's unmanaged playerDropped
+            // callback can exhaust the Mono/native callback stack. Defer it to the
+            // bridge tick, where failures are isolated by EventDispatcher.
+            _ = Schedule(() => DispatchPlayerDisconnected(player, reason), 0);
+        }
+
+        private async void DispatchPlayerDisconnected(GTANetworkAPI.Player player, string reason)
+        {
+            try
+            {
+                BaseScript.TriggerClientEvent("ragemp:player:unmap", player.Id);
+                await _dispatcher.DispatchServerAsync(Event.PlayerDisconnected, player, DisconnectionType.Left, reason ?? string.Empty);
+            }
+            catch (Exception error)
+            {
+                Debug.WriteLine("[ragemp-csharp] deferred PlayerDisconnected failed: " + error);
+            }
         }
 
         private void OnCommand([FromSource] CitizenFX.Core.Player source, string commandText)
@@ -320,37 +349,57 @@ namespace RageMP.FiveM.Bridge.Host
         private void OnPlayerSpawn([FromSource] CitizenFX.Core.Player source) =>
             _ = _dispatcher.DispatchServerAsync(Event.PlayerSpawn, _players.GetOrCreate(source));
 
-        private void OnPlayerDeath([FromSource] CitizenFX.Core.Player source, uint weapon, object? killerSource)
+        private void OnPlayerDeath([FromSource] CitizenFX.Core.Player source, long weaponValue, object? killerSource)
         {
+            var weapon = unchecked((uint)weaponValue);
             GTANetworkAPI.Player? killer = null;
             if (killerSource != null && ushort.TryParse(Convert.ToString(killerSource), out var killerId))
                 killer = _players.Get(killerId);
             _ = _dispatcher.DispatchServerAsync(Event.PlayerDeath, _players.GetOrCreate(source), killer, weapon);
         }
 
-        private void OnPlayerDamage([FromSource] CitizenFX.Core.Player source, int attackerSource, uint weapon, int healthLoss)
+        private void OnPlayerDamage([FromSource] CitizenFX.Core.Player source, int attackerSource, long weaponValue, int healthLoss)
         {
+            var weapon = unchecked((uint)weaponValue);
             var attacker = attackerSource >= 0 && attackerSource <= ushort.MaxValue
                 ? _players.Get((ushort)attackerSource)
                 : null;
             _ = _dispatcher.DispatchServerAsync(Event.PlayerDamage, _players.GetOrCreate(source), attacker, weapon, healthLoss);
         }
 
-        private void OnPlayerWeaponChange([FromSource] CitizenFX.Core.Player source, uint oldWeapon, uint newWeapon)
+        private void OnPlayerWeaponChange([FromSource] CitizenFX.Core.Player source, int oldWeapon, int newWeapon)
         {
             var player = _players.GetOrCreate(source);
-            player.CurrentWeapon = (WeaponHash)newWeapon;
-            _ = _dispatcher.DispatchServerAsync(Event.PlayerWeaponSwitch, player, (WeaponHash)oldWeapon, (WeaponHash)newWeapon);
+            var oldHash = unchecked((uint)oldWeapon);
+            var newHash = unchecked((uint)newWeapon);
+            player.CurrentWeapon = (WeaponHash)newHash;
+            _ = _dispatcher.DispatchServerAsync(Event.PlayerWeaponSwitch, player, (WeaponHash)oldHash, (WeaponHash)newHash);
         }
 
         private void OnPlayerReady([FromSource] CitizenFX.Core.Player source, string resourceName)
         {
             if (!_initialized)
             {
-                _pendingClientReady[source.Handle] = resourceName ?? string.Empty;
+                _pendingClientReady[source.Handle] = (source, resourceName ?? string.Empty);
                 return;
             }
-            SendClientBootstrap(source, resourceName);
+            _ = CompletePlayerReady(source, resourceName);
+        }
+
+        private async Task CompletePlayerReady(CitizenFX.Core.Player source, string resourceName)
+        {
+            try
+            {
+                Debug.WriteLine($"[ragemp-csharp] client ready source={source.Handle}; dispatching PlayerConnected");
+                await DispatchPlayerConnected(source);
+                Debug.WriteLine($"[ragemp-csharp] PlayerConnected complete source={source.Handle}; sending bootstrap");
+                SendClientBootstrap(source, resourceName);
+                Debug.WriteLine($"[ragemp-csharp] bootstrap complete source={source.Handle}");
+            }
+            catch (Exception error)
+            {
+                Debug.WriteLine($"[ragemp-csharp] client ready failed source={source.Handle}: {error}");
+            }
         }
 
         private void OnClientNotReady([FromSource] CitizenFX.Core.Player source, string resourceName)
@@ -399,6 +448,21 @@ namespace RageMP.FiveM.Bridge.Host
         {
             if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z) || !IsFinite(heading)) return;
             var player = _players.GetOrCreate(source);
+            var expectedBucket = unchecked((int)player.Dimension);
+            var actualBucket = API.GetPlayerRoutingBucket(source.Handle);
+            if (actualBucket != expectedBucket)
+            {
+                // The legacy server treats Player.Dimension as authoritative.
+                // BestMP can temporarily reset the native routing bucket while
+                // rebuilding a player ped after login/spawn. Leaving the two
+                // values split makes players and their vehicles invisible even
+                // though gameplay reports that both are in dimension 0.
+                Debug.WriteLine(
+                    $"[ragemp-csharp] player scope mismatch source={source.Handle} id={player.Id} " +
+                    $"expectedBucket={expectedBucket} actualBucket={actualBucket}; repairing");
+                API.SetPlayerRoutingBucket(source.Handle, expectedBucket);
+                actualBucket = API.GetPlayerRoutingBucket(source.Handle);
+            }
             player.ApplyNetworkState(
                 new GTANetworkAPI.Vector3(x, y, z),
                 heading,
@@ -406,12 +470,21 @@ namespace RageMP.FiveM.Bridge.Host
                 Math.Max(0, Math.Min(100, armor)),
                 source.Ping,
                 isInCover: isInCover);
+            var now = DateTime.UtcNow.Ticks;
+            if (!_nextPlayerScopeAuditTicks.TryGetValue(player.Id, out var nextAudit) || now >= nextAudit)
+            {
+                _nextPlayerScopeAuditTicks[player.Id] = now + TimeSpan.TicksPerSecond * 30;
+                Debug.WriteLine(
+                    $"[ragemp-csharp] player scope source={source.Handle} id={player.Id} " +
+                    $"position={x:F3},{y:F3},{z:F3} dimension={player.Dimension} bucket={actualBucket} " +
+                    $"vehicleNet={vehicleNetworkId} seat={nativeSeat}");
+            }
             ReconcilePlayerVehicle(player, vehicleNetworkId, nativeSeat);
         }
 
         private static void ReconcilePlayerVehicle(GTANetworkAPI.Player player, int networkId, int nativeSeat)
         {
-            var vehicle = networkId > 0 ? RAGE.Entities.Vehicles.GetByNetworkId(networkId) : null;
+            var vehicle = networkId > 0 ? EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle : null;
             if (player.Vehicle != vehicle)
             {
                 if (player.Vehicle != null) player.Vehicle.Occupants.Remove(player);
@@ -428,7 +501,7 @@ namespace RageMP.FiveM.Bridge.Host
         private void OnPlayerEnterVehicle([FromSource] CitizenFX.Core.Player source, int networkId, int nativeSeat)
         {
             var player = _players.GetOrCreate(source);
-            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId);
+            var vehicle = EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle;
             if (vehicle == null) return;
             var seat = checked((sbyte)(nativeSeat + 1));
             player.Vehicle = vehicle;
@@ -440,7 +513,7 @@ namespace RageMP.FiveM.Bridge.Host
         private void OnPlayerExitVehicle([FromSource] CitizenFX.Core.Player source, int networkId)
         {
             var player = _players.GetOrCreate(source);
-            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId) ?? player.Vehicle;
+            var vehicle = EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle ?? player.Vehicle;
             if (vehicle == null) return;
             vehicle.Occupants.Remove(player);
             player.Vehicle = null;
@@ -450,20 +523,20 @@ namespace RageMP.FiveM.Bridge.Host
 
         private void OnPlayerStartEnterVehicle([FromSource] CitizenFX.Core.Player source, int networkId, int nativeSeat)
         {
-            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId);
+            var vehicle = EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle;
             if (vehicle != null) _ = _dispatcher.DispatchServerAsync(Event.PlayerEnterVehicleAttempt, _players.GetOrCreate(source), vehicle, checked((sbyte)(nativeSeat + 1)));
         }
 
         private void OnPlayerStartExitVehicle([FromSource] CitizenFX.Core.Player source, int networkId)
         {
             var player = _players.GetOrCreate(source);
-            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId) ?? player.Vehicle;
+            var vehicle = EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle ?? player.Vehicle;
             if (vehicle != null) _ = _dispatcher.DispatchServerAsync(Event.PlayerExitVehicleAttempt, player, vehicle);
         }
 
         private void OnVehicleHealthReport([FromSource] CitizenFX.Core.Player source, int networkId, float bodyHealth, float engineHealth)
         {
-            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId);
+            var vehicle = EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle;
             if (vehicle == null) return;
             if (_vehicleHealth.TryGetValue(networkId, out var previous))
             {
@@ -477,18 +550,31 @@ namespace RageMP.FiveM.Bridge.Host
 
         private void OnVehicleDeath([FromSource] CitizenFX.Core.Player source, int networkId)
         {
-            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId);
+            var vehicle = EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle;
             if (vehicle != null) _ = _dispatcher.DispatchServerAsync(Event.VehicleDeath, vehicle);
         }
 
         private static void OnVehicleClassReport([FromSource] CitizenFX.Core.Player source, int networkId, int vehicleClass, string displayName)
         {
-            var vehicle = RAGE.Entities.Vehicles.GetByNetworkId(networkId);
+            var vehicle = EntityNetworkSync.ResolveNativeReference("vehicle", networkId) as GTANetworkAPI.Vehicle;
             if (vehicle == null || vehicleClass < 0 || vehicleClass > 31) return;
             var safeName = string.IsNullOrWhiteSpace(displayName)
                 ? string.Empty
                 : displayName.Substring(0, Math.Min(displayName.Length, 64));
             vehicle.ApplyNetworkMetadata(vehicleClass, safeName);
+        }
+
+        private void OnEntityResolve([FromSource] CitizenFX.Core.Player source, string type, int networkId)
+        {
+            var player = _players.GetOrCreate(source);
+            var resolved = EntityNetworkSync.SendNativeReferenceByNetworkId(player, type, networkId);
+            Debug.WriteLine($"[ragemp-csharp] entity resolve source={source.Handle} type={type} net={networkId} resolved={resolved}");
+        }
+
+        private void OnEntityRefresh([FromSource] CitizenFX.Core.Player source, string type, int remoteId)
+        {
+            var player = _players.GetOrCreate(source);
+            EntityNetworkSync.SendNativeReferenceByRemoteId(player, type, remoteId);
         }
 
         private void OnColshapeEnter([FromSource] CitizenFX.Core.Player source, int id)
@@ -540,12 +626,20 @@ namespace RageMP.FiveM.Bridge.Host
                 if (handle == 0 || !API.DoesEntityExist(handle)) continue;
                 var position = API.GetEntityCoords(handle);
                 var rotation = API.GetEntityRotation(handle);
+                var compatibilityZ = entity is GTANetworkAPI.Ped
+                    ? position.Z + CitizenFxRuntime.RageGroundZCompensation
+                    : position.Z;
                 entity.ApplyNetworkTransform(
-                    new GTANetworkAPI.Vector3(position.X, position.Y, position.Z),
+                    new GTANetworkAPI.Vector3(position.X, position.Y, compatibilityZ),
                     new GTANetworkAPI.Vector3(rotation.X, rotation.Y, rotation.Z),
                     unchecked((uint)API.GetEntityRoutingBucket(handle)));
-                if (entity is GTANetworkAPI.Vehicle vehicle)
-                    vehicle.ApplyNetworkHealth(API.GetEntityHealth(handle), API.GetVehicleBodyHealth(handle), API.GetVehicleEngineHealth(handle));
+                // Vehicle health is controller-owned in OneSync. On this runtime
+                // the server natives return 0 while a perfectly healthy vehicle
+                // is materialized on a client. Treating that sentinel as real
+                // health makes Neptune's death controller delete and respawn the
+                // vehicle, replacing its stable bridge id with 65535. Health is
+                // updated by OnVehicleHealthReport from the current controller;
+                // the server refresh is only authoritative for transforms.
             }
         }
 

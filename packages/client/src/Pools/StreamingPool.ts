@@ -4,6 +4,7 @@ import {
   atLocal,
   atRemote,
   atHandle,
+  resolveHandle,
   atNetId,
   existsRemote,
   LOCAL_STREAM_ID_BASE,
@@ -52,7 +53,11 @@ export class StreamingPool<T extends Entity> extends Pool<T> {
   }
 
   atHandle(handle: number): any {
-    return atHandle(this, handle);
+    // RAGE:MP returns a streamed entity wrapper for a valid native handle.
+    // FiveM can expose a handle one tick before the periodic pool scan has
+    // populated handleToEntity (raycasts and PlayerMp.vehicle commonly hit
+    // this window), so resolve it on demand instead of returning null.
+    return atHandle(this, handle) ?? resolveHandle(this, handle);
   }
 
   atNetId(netId: number): any {

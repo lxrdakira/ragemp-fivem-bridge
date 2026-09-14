@@ -13,6 +13,7 @@ type StreamInHandler = (entity: VehicleMp, handle: number, netId: number) => voi
 interface VehiclePoolState {
   streamInHandlers: Set<StreamInHandler>;
   pendingBatches: Map<number, [string, any[]][]>;
+  pendingRemoteBatches: Map<number, [string, any[]][]>;
 }
 
 const Store = defineInternals<VehiclePoolState>();
@@ -45,15 +46,29 @@ const VEHICLE_DISPATCH: Record<string, (h: number, ...args: any[]) => void> = {
 };
 
 export function setupVehiclePool(pool: object): void {
-  Store.init(pool, { streamInHandlers: new Set(), pendingBatches: new Map() });
+  Store.init(pool, {
+    streamInHandlers: new Set(),
+    pendingBatches: new Map(),
+    pendingRemoteBatches: new Map(),
+  });
 
-  onNet("ragemp:vehicle:batch", (netId: number, items: [string, any[]][]) => {
-    const handle = safeGetEntityFromNetId(netId);
+  onNet("ragemp:vehicle:batch", (netId: number, items: [string, any[]][], remoteId?: number) => {
+    const remoteEntity = Number.isFinite(remoteId)
+      ? (pool as any).atRemoteId?.(Number(remoteId)) as VehicleMp | null
+      : null;
+    const remoteHandle = remoteEntity?.handle;
+    const handle = remoteHandle && DoesEntityExist(remoteHandle)
+      ? remoteHandle
+      : safeGetEntityFromNetId(netId);
     if (!handle) {
-      const pending = Store.get(pool).pendingBatches.get(netId) ?? [];
+      const state = Store.get(pool);
+      const useRemote = Number.isFinite(remoteId) && Number(remoteId) > 0;
+      const key = useRemote ? Number(remoteId) : netId;
+      const target = useRemote ? state.pendingRemoteBatches : state.pendingBatches;
+      const pending = target.get(key) ?? [];
       pending.push(...(Array.isArray(items) ? items : []));
       if (pending.length > 256) pending.splice(0, pending.length - 256);
-      Store.get(pool).pendingBatches.set(netId, pending);
+      target.set(key, pending);
       return;
     }
     applyBatch(handle, items);
@@ -80,10 +95,24 @@ export function fireVehicleStreamIn(pool: object, entity: VehicleMp, handle: num
     const model = GetEntityModel(handle);
     emitNet("ragemp:vehicleClassReport", netId, GetVehicleClass(handle), GetDisplayNameFromVehicleModel(model) || "");
   }
+  // Creation-time shared data can reach BestMP before the physical native is
+  // associated with its stable RAGE id. Refresh the authoritative snapshot
+  // only after stream-in/adoption so PETROL, MAXTANK, access and engine state
+  // are guaranteed to land on the wrapper used by legacy gameplay code.
+  const stableRemoteId = Number(entity.remoteId);
+  if (streamEntityState(entity).isServer && stableRemoteId > 0 && stableRemoteId < 65535) {
+    emitNet("ragemp:entity:refresh", "vehicle", stableRemoteId);
+  }
   const pending = state.pendingBatches.get(netId);
   if (pending) {
     state.pendingBatches.delete(netId);
     applyBatch(handle, pending);
+  }
+  const remoteId = stableRemoteId;
+  const pendingRemote = state.pendingRemoteBatches.get(remoteId);
+  if (pendingRemote) {
+    state.pendingRemoteBatches.delete(remoteId);
+    applyBatch(handle, pendingRemote);
   }
   for (const handler of Store.get(pool).streamInHandlers) {
     try { handler(entity, handle, netId); } catch (e) {}

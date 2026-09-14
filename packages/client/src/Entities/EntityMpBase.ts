@@ -15,7 +15,7 @@ export class EntityMpBase extends Entity {
     return toVec3(GetEntityCoords(this.handle, true));
   }
   override set position(value: Vector3) {
-    runNativeEntityAction(this, (handle) => SetEntityCoords(handle, value.x, value.y, value.z, false, false, false, false));
+    runNativeEntityAction(this, (handle) => SetEntityCoordsNoOffset(handle, value.x, value.y, value.z, true, true, true));
   }
 
   get rotation(): Vector3 {
@@ -88,6 +88,10 @@ export class EntityMpBase extends Entity {
 
   getHeading(): number {
     return GetEntityHeading(this.handle);
+  }
+
+  getPitch(): number {
+    return GetEntityPitch(this.handle);
   }
 
   getHealth(): number {
