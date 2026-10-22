@@ -126,6 +126,15 @@ namespace NeptuneEvo
 
 namespace NeptuneEvo.PortCompatibility
 {
+    internal static class FiveMShutdown
+    {
+        internal static void RequestQuit()
+        {
+            var runtime = RageMP.FiveM.Bridge.BridgeRuntime.Current;
+            runtime.Schedule(() => runtime.RequestServerQuit("Плановая перезагрузка сервера"));
+        }
+    }
+
     internal static class FiveMDatabaseCompatibility
     {
         internal static void SkipLegacyBackup()

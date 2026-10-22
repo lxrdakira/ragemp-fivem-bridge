@@ -41,6 +41,8 @@ import { GameRecordingNs } from "./recording.js";
 import { GameReplayNs } from "./replay.js";
 import { GameDatafileNs } from "./datafile.js";
 import { GameEventNs } from "./event.js";
+import { setCompatibleComponentVariation } from "../utils/clothingCompatibility.js";
+import { isSetPedComponentVariationNative } from "../utils/nativeInvokeRouter.js";
 
 export class GameMp {
   entity: GameEntityNs;
@@ -145,7 +147,19 @@ export class GameMp {
     this.ui = this.hud;
   }
 
-  invoke(hash: string, ...args: any[]): any { return Citizen.invokeNative(hash, ...args); }
+  invoke(hash: string, ...args: any[]): any {
+    if (isSetPedComponentVariationNative(hash)) {
+      setCompatibleComponentVariation(
+        Number(args[0]) || 0,
+        Number(args[1]) || 0,
+        Number(args[2]) || 0,
+        Number(args[3]) || 0,
+        Number(args[4]) || 0,
+      );
+      return undefined;
+    }
+    return Citizen.invokeNative(hash, ...args);
+  }
   invokeFloat(hash: string, ...args: any[]): number { return Citizen.invokeNative(hash, Citizen.resultAsFloat(), ...args); }
   invokeString(hash: string, ...args: any[]): string { return Citizen.invokeNative(hash, Citizen.resultAsString(), ...args); }
   invokeVector3(hash: string, ...args: any[]): Vector3 {

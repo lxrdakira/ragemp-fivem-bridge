@@ -1,5 +1,8 @@
 export const vehicleAppliers: Record<string, (h: number, v: any) => void> = {
-  engine: (h: number, v: boolean) => SetVehicleEngineOn(h, v, false, false),
+  engine: (h: number, v: boolean) => {
+    SetVehicleEngineOn(h, !!v, true, !v);
+    SetVehicleUndriveable(h, !v);
+  },
   livery: (h: number, v: number) => SetVehicleLivery(h, v),
   numberPlateType: (h: number, v: number) => SetVehicleNumberPlateTextIndex(h, v),
   windowTint: (h: number, v: number) => SetVehicleWindowTint(h, v),

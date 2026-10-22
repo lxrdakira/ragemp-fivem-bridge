@@ -3,6 +3,7 @@ import { cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/pr
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { patchNpcClothing } from "./npc-clothing-patch.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bridgeRoot = resolve(here, "../..");
@@ -36,7 +37,7 @@ if (existsSync(playerAssetsOutDir)) await rm(playerAssetsOutDir, { recursive: tr
 await mkdir(join(outDir, "ui"), { recursive: true });
 await mkdir(join(outDir, "client"), { recursive: true });
 
-await cp(join(clientPackages, "main.js"), join(outDir, "main.js"));
+await writeFile(join(outDir, "main.js"), patchNpcClothing(await readFile(join(clientPackages, "main.js"), "utf8")), "utf8");
 await cp(join(clientPackages, "rage-rpc.min.js"), join(outDir, "rage-rpc.min.js"));
 await cp(bridgeCef, join(outDir, "ui/_bridge.js"));
 await cp(join(here, "neptune-ui-host.html"), join(outDir, "ui/host.html"));
@@ -58,20 +59,25 @@ const patchedInterfaceFiles = new Set([
 function shouldPatchInterfaceFile(relativePath) {
   const normalized = relativePath.replace(/\\/g, "/");
   return patchedInterfaceFiles.has(normalized) ||
-    /^inventory_vue\/assets\/index-[^/]+\.js$/i.test(normalized);
+    /^inventory_vue\/assets\/index-[^/]+\.js$/i.test(normalized) ||
+    /^cef_vue\/assets\/[^/]+\.(?:css|js)$/i.test(normalized);
 }
 
 function directoryMayContainPatchedFile(relativePath) {
   const normalized = relativePath.replace(/\\/g, "/");
   return [...patchedInterfaceFiles].some((path) => path.startsWith(`${normalized}/`)) ||
     "inventory_vue/assets".startsWith(normalized) ||
-    normalized.startsWith("inventory_vue/assets");
+    normalized.startsWith("inventory_vue/assets") ||
+    "cef_vue/assets".startsWith(normalized);
 }
 
 function patchInterfaceSource(source, relativePath) {
   let patched = source;
   const commonAssetsBase = `https://cfx-nui-${commonAssetsResourceName}/src/views/`;
   const playerAssetsBase = `https://cfx-nui-${playerAssetsResourceName}/src/views/player/`;
+  const notifyAssetsBase = `${commonAssetsBase}assets/images/notify/`;
+  const playerImagesBase = `${playerAssetsBase}serverMenu/src/assets/pictures/`;
+  const commonImagesBase = `${commonAssetsBase}assets/images/`;
 
   // Keep large legacy image trees in separate resources. A single 1.9 GiB
   // resource.rpf cannot be materialized reliably by the FiveM cache. Only
@@ -87,7 +93,21 @@ function patchInterfaceSource(source, relativePath) {
     // Webpack emits the smaller shared asset tree as root-relative /src/assets.
     // In the FiveM resource it lives below interface/, next to the CEF bundle.
     .replace(/(["'])\/src\/assets\//g, `$1/interface/src/assets/`)
-    .replace(/url\(\/src\/assets\//g, `url(/interface/src/assets/`);
+    .replace(/url\(\/src\/assets\//g, `url(/interface/src/assets/`)
+    // Popup icons are emitted as root-relative URLs by the legacy CSS bundle.
+    .replace(/(["'])\/src\/popups\//g, `$1/interface/src/popups/`)
+    .replace(/url\(\/src\/popups\//g, `url(/interface/src/popups/`)
+    // Vue notifications reuse the already-published shared icon directory.
+    .replace(/(["'])\/images\/notify\//g, `$1${notifyAssetsBase}`)
+    .replace(/url\(\/images\/notify\//g, `url(${notifyAssetsBase}`);
+  const imageBase = (category) => category === "property"
+    ? `${commonImagesBase}${category}/`
+    : `${playerImagesBase}${category}/`;
+  patched = patched
+    .replace(/(["'`])\/images\/(inventory|tablet|policeTablet|property)\//g,
+      (_match, quote, category) => `${quote}${imageBase(category)}`)
+    .replace(/url\(\/images\/(inventory|tablet|policeTablet|property)\//g,
+      (_match, category) => `url(${imageBase(category)}`);
   if (relativePath.toLowerCase().endsWith(".html")) {
     patched = patched.replace(
       /((?:src|href)\s*=\s*["'])package:\/\/([^"']+)/gi,
@@ -229,6 +249,21 @@ for (const [source, relativeTarget] of legacyPublicDirs) {
   else await symlink(source, target, process.platform === "win32" ? "junction" : "dir");
 }
 
+// These existing local images are fallbacks used by the client/CEF when a
+// character photo or container preview is unavailable. Keep the aliases small
+// instead of copying the full legacy image trees into this resource.
+const fallbackImages = [
+  [join(legacyCefSource, "src/views/player/menu/img/person.png"), "images/docs/person.png"],
+  [join(legacyCefSource, "src/views/player/serverMenu/src/assets/pictures/container/zag.png"), "images/container/default.png"],
+  [join(legacyCefSource, "src/views/player/serverMenu/src/assets/pictures/inventory/items/monetapetra.png"), "images/inventory/items/monetapetra.png"],
+];
+for (const [source, relativeTarget] of fallbackImages) {
+  if (!existsSync(source)) throw new Error(`Required fallback image is missing: ${source}`);
+  const target = join(outDir, relativeTarget);
+  await mkdir(dirname(target), { recursive: true });
+  await cp(source, target);
+}
+
 const manifest = `fx_version 'cerulean'
 game 'gta5'
 
@@ -258,34 +293,50 @@ files {
     'interface/*.png',
     'interface/*.svg',
     'interface/build/**/*',
-    -- The legacy Svelte bundle emits font URLs below interface/src while the
-    -- rest of that large source tree must stay unpublished. Keep the list
-    -- extension-only so FiveM serves every font without pulling in images or
-    -- other legacy assets. Linux resource paths are case-sensitive.
+    -- The legacy Svelte bundle emits fonts and a small set of CSS icons under
+    -- interface/src. Keep the large views tree unpublished. Linux resource
+    -- paths are case-sensitive.
     'interface/src/**/*.eot',
     'interface/src/**/*.ttf',
     'interface/src/**/*.TTF',
     'interface/src/**/*.woff',
     'interface/src/**/*.woff2',
-    'interface/src/assets/inventoryItems/**/*',
+    'interface/src/assets/**/*',
+    'interface/src/popups/**/*',
     'interface/buildru/bundle.css',
     'interface/buildru/bundle.js',
     'interface/cef_vue/index.html',
     'interface/cef_vue/assets/**/*',
     'interface/cef_vue/data/**/*',
     'interface/cef_vue/sounds/**/*',
+    'interface/cef_vue/images/bank/buyCard/bg.png',
+    'interface/cef_vue/images/bank/mainBank/mainBank.svg',
+    'interface/cef_vue/images/menuServer/rating/bg.png',
+    'interface/cef_vue/images/menuServer/battlepass/tasks/tasks.png',
     'interface/inventory_vue/index.html',
     'interface/inventory_vue/assets/**/*',
     'interface/inventory_vue/data/**/*',
     'interface/inventory_vue/sounds/**/*',
     'interface/inventory_vue/images/authorization/**/*',
     'interface/inventory_vue/images/bank/**/*',
+    'interface/inventory_vue/images/fishingShop/logo.png',
+    'interface/inventory_vue/images/fishingShop/rods.svg',
+    'interface/inventory_vue/images/fishingShop/reels.svg',
+    'interface/inventory_vue/images/fishingShop/lines.svg',
+    'interface/inventory_vue/images/fishingShop/hooks.svg',
+    'interface/inventory_vue/images/fishingShop/baits.svg',
+    'interface/inventory_vue/images/fishingShop/lures.svg',
+    'interface/inventory_vue/images/fishingShop/buyer.svg',
     'interface/inventory_vue/images/menuServer/**/*',
+    'interface/inventory_vue/images/phone/**/*',
     'interface/inventory_vue/images/transport_all/**/*',
     'images/menuServer/**/*',
     'images/waitCircle/**/*',
     'images/clothingshop/**/*',
     'images/phone/**/*',
+    'images/docs/person.png',
+    'images/container/default.png',
+    'images/inventory/items/monetapetra.png',
     'cef/**/*',
     'soundapi/**/*',
     'sounds/**/*'

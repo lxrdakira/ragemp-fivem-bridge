@@ -53,7 +53,14 @@ export class GamePlayerNs {
   setHealthRechargeMultiplier(rechargeRate: number): void { SetPlayerHealthRechargeMultiplier(PlayerId(), rechargeRate); }
   setMaxArmour(player: number, value: number): void { SetPlayerMaxArmour(player, value); }
   setFallDistance(player: number, fallDistance: number): void { SetPlayerFallDistance(player, fallDistance); }
-  restoreStamina(player: number, p1: number): void { RestorePlayerStamina(player ?? PlayerId(), p1 ?? 1.0); }
+  restoreStamina(amount: number): void;
+  restoreStamina(player: number, amount: number): void;
+  restoreStamina(playerOrAmount: number, amount?: number): void {
+    // RAGE's one-argument call targets the local player, not a player index.
+    const player = amount === undefined ? PlayerId() : playerOrAmount;
+    const value = amount === undefined ? playerOrAmount : amount;
+    RestorePlayerStamina(player, Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1);
+  }
   resetStamina(player: number): void { ResetPlayerStamina(player ?? PlayerId()); }
 
   changePed(player: number, ped: number, p2: boolean, resetDamage: boolean): void { ChangePlayerPed(player, ped, p2 ?? false, resetDamage ?? true); }

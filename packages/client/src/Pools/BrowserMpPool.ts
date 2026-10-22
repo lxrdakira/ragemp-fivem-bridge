@@ -4,11 +4,13 @@ import { addLocal } from "../internal/pools/clientPool";
 import { BrowserMp, setBrowserProcTimeout, getBrowserProcTimeout } from "../Entities/BrowserMp";
 import { setupBrowserPool } from "../internal/pools/browserPoolService";
 import {
+  BrowserInternals,
   applyBrowserPointerEvents,
   initBrowserPoolInternals,
   setHeadlessBrowser,
 } from "../internal/browserInternals";
 import { NUI_FETCH_COMPATIBILITY_CODE } from "../internal/nuiCallback";
+import { retryBrowserCreateUntilReady } from "../utils/browserCreateRetry";
 
 let headlessGeneration = 0;
 
@@ -32,9 +34,22 @@ export class BrowserMpPool extends Pool<BrowserMp> {
     addLocal(this, browser);
     const id = browser.id;
 
-    if (typeof SendNuiMessage === "function") {
+    const sendCreate = () => {
+      if (typeof SendNuiMessage !== "function") return;
       SendNuiMessage(JSON.stringify({ type: "__ragemp:browser:create", browserId: id, url }));
-    }
+    };
+    sendCreate();
+    retryBrowserCreateUntilReady(
+      () => {
+        const state = BrowserInternals.get(browser);
+        return state.destroyed || state.domReady;
+      },
+      () => {
+        sendCreate();
+        // Pointer state sent before the host frame existed was discarded too.
+        applyBrowserPointerEvents(browser);
+      },
+    );
     // Queue the b3889 callback-path compatibility shim behind assignId. The
     // CEF manager flushes this as soon as the nested legacy browser is ready.
     browser.execute(NUI_FETCH_COMPATIBILITY_CODE);
@@ -74,6 +89,7 @@ export class BrowserMpPool extends Pool<BrowserMp> {
       height: Math.max(1, height | 0),
       surfaceGeneration: generation,
       readyTimer: null,
+      publishTimer: null,
       activationTimer: null,
       idleTimer: null,
       pendingPayloads: [],

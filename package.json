@@ -11,6 +11,10 @@
     "build:resource:csharp": "pnpm run build && dotnet build packages/server-csharp/RageMP.FiveM.Bridge.Host/RageMP.FiveM.Bridge.Host.csproj -c Release && dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj -c Release && node packages/pack-bridge/pack-bridge.mjs --with-csharp --with-neptune",
     "build:csharp": "dotnet build packages/server-csharp/RageMP.FiveM.Bridge.Core/RageMP.FiveM.Bridge.Core.csproj",
     "test:csharp": "dotnet run --project packages/server-csharp/RageMP.FiveM.Bridge.Core.Tests/RageMP.FiveM.Bridge.Core.Tests.csproj",
+    "test:pack": "node --test packages/pack-bridge/pack-bridge.test.mjs packages/pack-bridge/collect-active-cef-procedures.test.mjs packages/server-csharp/NeptuneEvo.Port/staging-source-adapters.test.mjs",
+    "test:ui-pack": "node --test packages/pack-bridge/pack-neptune-ui.test.mjs",
+    "test:clothing": "cross-env PLMP_LEGACY_GAME_ROOT=.. node --test packages/server-csharp/NeptuneEvo.Port/faction-clothing-patch.test.mjs packages/server-csharp/NeptuneEvo.Port/npc-clothing-adapters.test.mjs packages/pack-bridge/npc-clothing-patch.test.mjs && dotnet run --project packages/server-csharp/NeptuneEvo.Port/npc-clothing-tests/NpcClothing.Tests.csproj -c Release",
+    "build:neptune:sources": "node packages/pack-bridge/build-neptune-sources.mjs",
     "build:neptune": "dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj",
     "audit:neptune:client": "node packages/pack-bridge/audit-neptune-client.mjs",
     "audit:neptune:contracts": "node packages/pack-bridge/audit-neptune-contracts.mjs",
@@ -19,7 +23,7 @@
     "pack:neptune:ui:portable": "node packages/pack-bridge/pack-neptune-ui.mjs --portable",
     "build:neptune:ui": "pnpm run build && node packages/pack-bridge/pack-neptune-ui.mjs",
     "build:neptune:all": "pnpm run build && dotnet build packages/server-csharp/RageMP.FiveM.Bridge.Host/RageMP.FiveM.Bridge.Host.csproj -c Release && dotnet build packages/server-csharp/NeptuneEvo.Port/NeptuneEvo.Port.csproj -c Release && node packages/pack-bridge/pack-bridge.mjs --with-csharp --with-neptune && node packages/pack-bridge/pack-neptune-ui.mjs",
-    "verify:neptune": "pnpm run audit:neptune:client && pnpm run audit:neptune:contracts && pnpm run audit:neptune:cef-contracts && pnpm run test:csharp && pnpm run build:neptune:all"
+    "verify:neptune": "pnpm run build:neptune:sources && pnpm run test:clothing && pnpm run audit:neptune:client && pnpm run audit:neptune:contracts && pnpm run audit:neptune:cef-contracts && pnpm run test:pack && pnpm run test:csharp && pnpm run build:neptune:all && pnpm run test:ui-pack"
   },
   "license": "ISC",
   "packageManager": "pnpm@10.28.2",

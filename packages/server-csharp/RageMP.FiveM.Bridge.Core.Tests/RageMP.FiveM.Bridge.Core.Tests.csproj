@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\RageMP.FiveM.Bridge.Core\RageMP.FiveM.Bridge.Core.csproj" />
+    <Compile Include="..\RageMP.FiveM.Bridge.Host\RuntimeFileBootstrapPolicy.cs" Link="RuntimeFileBootstrapPolicy.cs" />
   </ItemGroup>
 </Project>

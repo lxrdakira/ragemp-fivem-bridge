@@ -6,9 +6,10 @@ const bridgeRoot = resolve(import.meta.dirname, "../..");
 const projectRoot = resolve(bridgeRoot, "..");
 const cefBundlePath = resolve(projectRoot, "client_packages/interface/build/bundle.js");
 const clientBundlePath = resolve(projectRoot, "client_packages/main.js");
+const clientRpcPath = resolve(projectRoot, "client_packages/rage-rpc.min.js");
 const clientCompatPath = resolve(bridgeRoot, "packages/pack-bridge/neptune-client-compat.js");
 
-for (const required of [cefBundlePath, clientBundlePath, clientCompatPath]) {
+for (const required of [cefBundlePath, clientBundlePath, clientRpcPath, clientCompatPath]) {
   if (!existsSync(required)) throw new Error(`required Neptune contract input is missing: ${required}`);
 }
 
@@ -17,6 +18,7 @@ const stripComments = (source) => source
   .replace(/^\s*\/\/.*$/gm, "");
 const cefBundle = stripComments(readFileSync(cefBundlePath, "utf8"));
 const clientBundle = readFileSync(clientBundlePath, "utf8");
+const clientRpc = readFileSync(clientRpcPath, "utf8");
 const clientCompat = readFileSync(clientCompatPath, "utf8");
 
 function collect(source, expression) {
@@ -38,6 +40,16 @@ const clientEvents = new Set([
   ...collect(clientBundle, /\b(?:gm|mp)\.events\.add\(\s*["']([^"']+)["']/g),
   ...collect(clientCompat, /["']?([A-Za-z0-9_.:-]+)["']?\s*:\s*(?:async\s*)?\(/g),
 ]);
+
+// rage-rpc is a separate client_script loaded before main.js. Its minified
+// browser registration handlers use variable names, not string literals in
+// gm.events.add(...), so the generic collector cannot see them.
+for (const name of ["__rpc:browserRegister", "__rpc:browserUnregister"]) {
+  const binding = new RegExp(`\\b([A-Za-z_$][\\w$]*)=["']${name}["']`).exec(clientRpc)?.[1];
+  if (binding && new RegExp(`\\b(?:gm|mp)\\.events\\.add\\(\\s*${binding}\\s*,`).test(clientRpc)) {
+    clientEvents.add(name);
+  }
+}
 
 // These five controls are visible in the current CEF bundle but have no
 // implementation in either the original RAGE client or server. Keep them as a

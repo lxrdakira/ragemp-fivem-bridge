@@ -12,7 +12,7 @@
   "scripts": {
     "prebuild": "rimraf dist",
     "build": "rollup -c",
-    "test:identity": "rollup -c tests/rollup.config.mjs && node tests/.tmp/entity-identity.cjs && node tests/.tmp/vehicle-extras.cjs && node tests/.tmp/player-reconnect.cjs",
+    "test:identity": "rollup -c tests/rollup.config.mjs && node tests/.tmp/entity-identity.cjs && node tests/.tmp/vehicle-extras.cjs && node tests/.tmp/player-reconnect.cjs && node tests/.tmp/stamina-compatibility.cjs && node tests/.tmp/server-ped-state.cjs && node tests/.tmp/ped-local-fallback-retry.cjs && node tests/.tmp/object-animation-compat.cjs && node tests/.tmp/browser-create-retry.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

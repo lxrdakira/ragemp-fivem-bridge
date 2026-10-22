@@ -9,10 +9,14 @@ import { getChatBrowser } from "./internal/browserInternals";
 import { installDefaultVehicleEnteringCompatibility } from "./internal/defaultVehicleEntering";
 import { setCompatibleComponentVariation, setCompatiblePropIndex } from "./utils/clothingCompatibility";
 import { setPlayerModelIfDifferent } from "./utils/playerModel";
+import { installNativeWantedSuppression } from "./utils/nativeWanted";
+import { installDrivingSchoolSeat } from "./utils/drivingSchoolSeat";
 
 if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "library") {
   globalThis.mp = new Mp();
   installDefaultVehicleEnteringCompatibility();
+  installNativeWantedSuppression();
+  installDrivingSchoolSeat();
 
   setPoolLifecycleSink((type, entity) => globalThis.mp?.events?.call(type, entity));
 
@@ -53,6 +57,7 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
   let _clothesDeadline = 0;
   let _modelTimer: ReturnType<typeof setInterval> | null = null;
   let _animTimer: ReturnType<typeof setInterval> | null = null;
+  const _remoteAnimTimers = new Map<number, ReturnType<typeof setInterval>>();
   let _putVehTimer: ReturnType<typeof setInterval> | null = null;
   const _controlTimers = new Map<number, ReturnType<typeof setInterval>>();
 
@@ -366,6 +371,43 @@ if (GetResourceMetadata(GetCurrentResourceName(), "ragemp_bridge", 0) !== "libra
 
   onNet("ragemp:stopAnimation", () => {
     ClearPedTasks(PlayerPedId());
+  });
+
+  onNet("ragemp:player:playAnimation", (remoteId: number, dict: string, name: string, speed: number, flag: number) => {
+    if (!Number.isInteger(remoteId) || typeof dict !== "string" || typeof name !== "string") return;
+    const target = globalThis.mp?.players?.atRemoteId(remoteId);
+    if (!target || target === globalThis.mp?.players?.local) return;
+
+    const pending = _remoteAnimTimers.get(remoteId);
+    if (pending) clearInterval(pending);
+    RequestAnimDict(dict);
+    let tries = 0;
+    const timer = setInterval(() => {
+      const player = globalThis.mp?.players?.atRemoteId(remoteId);
+      const ped = player?.handle ?? 0;
+      if (ped && DoesEntityExist(ped) && HasAnimDictLoaded(dict)) {
+        clearInterval(timer);
+        if (_remoteAnimTimers.get(remoteId) === timer) _remoteAnimTimers.delete(remoteId);
+        TaskPlayAnim(ped, dict, name, speed ?? 8.0, -8.0, -1, flag ?? 0, 0, false, false, false);
+      } else if (++tries > 100) {
+        clearInterval(timer);
+        if (_remoteAnimTimers.get(remoteId) === timer) _remoteAnimTimers.delete(remoteId);
+      }
+    }, 50);
+    _remoteAnimTimers.set(remoteId, timer);
+  });
+
+  onNet("ragemp:player:stopAnimation", (remoteId: number) => {
+    if (!Number.isInteger(remoteId)) return;
+    const target = globalThis.mp?.players?.atRemoteId(remoteId);
+    if (!target || target === globalThis.mp?.players?.local) return;
+    const pending = _remoteAnimTimers.get(remoteId);
+    if (pending) {
+      clearInterval(pending);
+      _remoteAnimTimers.delete(remoteId);
+    }
+    const ped = target.handle;
+    if (ped && DoesEntityExist(ped)) ClearPedTasks(ped);
   });
 
   onNet("ragemp:playScenario", (name: string) => {

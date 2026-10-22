@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using GTANetworkAPI;
 using Newtonsoft.Json;
 using RageMP.FiveM.Bridge;
+using RageMP.FiveM.Bridge.Host;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
@@ -33,9 +35,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Native entity shared data synchronization", TestNativeEntitySharedDataSync),
     ("Native entity creation failure", TestNativeEntityCreationFailure),
     ("Native ped creation retry", TestNativePedCreationRetry),
+    ("Local ped late join snapshot", TestLocalPedLateJoinSnapshot),
     ("Native entity bootstrap snapshot", TestNativeEntityBootstrapSnapshot),
     ("Native entity resolver", TestNativeEntityResolver),
-    ("Vehicle class catalog", TestVehicleClassCatalog)
+    ("Vehicle class catalog", TestVehicleClassCatalog),
+    ("Isolated staging settings policy", TestIsolatedStagingSettingsPolicy)
 };
 
 var failures = 0;
@@ -515,6 +519,32 @@ static Task TestNativePedCreationRetry()
     return Task.CompletedTask;
 }
 
+static Task TestLocalPedLateJoinSnapshot()
+{
+    var runtime = new FakeRuntime { FailEntityCreation = true };
+    BridgeRuntime.Configure(runtime);
+    var ped = NAPI.Ped.CreatePed(989u, new Vector3(10, 20, 30), 90f, frozen: true);
+    ped.SetSharedData("questName", "npc_korhik_station_cashier");
+    var target = NewPlayer(31);
+    runtime.ClientEvents.Clear();
+    runtime.BroadcastEvents.Clear();
+
+    EntityNetworkSync.SendAll(target);
+
+    var createIndex = runtime.ClientEvents.FindIndex(e => e.EventName == "ragemp:entity:create");
+    var localCreateIndex = runtime.ClientEvents.FindIndex(e => e.EventName == "ragemp:ped:localCreate");
+    var sharedIndex = runtime.ClientEvents.FindIndex(e => e.EventName == "ragemp:entity:sharedBatch");
+    var stateIndex = runtime.ClientEvents.FindIndex(e => e.EventName == "ragemp:ped:batch");
+    Equal(true, createIndex >= 0 && localCreateIndex > createIndex &&
+        sharedIndex > localCreateIndex && stateIndex > sharedIndex);
+    var localCreate = runtime.ClientEvents[localCreateIndex];
+    Equal(ped.Id, localCreate.Arguments[0]);
+    Equal(ped.Model, localCreate.Arguments[1]);
+
+    ped.Delete();
+    return Task.CompletedTask;
+}
+
 static Task TestNativeEntityBootstrapSnapshot()
 {
     var runtime = new FakeRuntime();
@@ -569,6 +599,52 @@ static Task TestNativeEntityResolver()
     return Task.CompletedTask;
 }
 
+static Task TestIsolatedStagingSettingsPolicy()
+{
+    Equal(false, RuntimeFileBootstrapPolicy.ResolveIsolationMode(null));
+    Equal(false, RuntimeFileBootstrapPolicy.ResolveIsolationMode("0"));
+    Equal(true, RuntimeFileBootstrapPolicy.ResolveIsolationMode("1"));
+    var rejected = false;
+    try { RuntimeFileBootstrapPolicy.ResolveIsolationMode("true"); }
+    catch (InvalidOperationException) { rejected = true; }
+    Equal(true, rejected);
+
+    var tempBase = Path.GetFullPath(Path.GetTempPath());
+    var root = Path.GetFullPath(Path.Combine(tempBase, "plmp-staging-policy-" + Guid.NewGuid().ToString("N")));
+    if (!root.StartsWith(tempBase.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        throw new InvalidOperationException("Test fixture escaped the temporary directory.");
+    var source = Path.Combine(root, "source");
+    var target = Path.Combine(root, "target");
+    try
+    {
+        Directory.CreateDirectory(Path.Combine(source, "settings"));
+        Directory.CreateDirectory(Path.Combine(target, "settings"));
+        File.WriteAllText(Path.Combine(source, "settings", "mainDB.json"), "{}");
+        File.WriteAllText(Path.Combine(source, "settings", "donateDB.json"), "{}");
+        rejected = false;
+        try { RuntimeFileBootstrapPolicy.RequireIsolatedSettings(source, target); }
+        catch (InvalidOperationException) { rejected = true; }
+        Equal(true, rejected);
+
+        File.WriteAllText(Path.Combine(target, "settings", "mainDB.json"), "{}");
+        rejected = false;
+        try { RuntimeFileBootstrapPolicy.RequireIsolatedSettings(source, target); }
+        catch (InvalidOperationException) { rejected = true; }
+        Equal(true, rejected);
+
+        File.WriteAllText(Path.Combine(target, "settings", "donateDB.json"), "{}");
+        RuntimeFileBootstrapPolicy.RequireIsolatedSettings(source, target);
+        Equal(true, RuntimeFileBootstrapPolicy.IsSettingsPath("settings/mainDB.json"));
+        Equal(true, RuntimeFileBootstrapPolicy.IsSettingsPath("settings\\mainDB.json"));
+        Equal(false, RuntimeFileBootstrapPolicy.IsSettingsPath("json/data.json"));
+    }
+    finally
+    {
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+    return Task.CompletedTask;
+}
+
 static Player NewPlayer(ushort id) => new Player(new NetHandle(id, EntityType.Player));
 static Vector3 Vector3Zero() => new Vector3(0, 0, 0);
 static void Equal<T>(T expected, T actual)
@@ -618,6 +694,7 @@ sealed class FakeRuntime : IBridgeRuntime
     public void ResetSharedData(Entity entity, string key) => ResetSharedDataKeys.Add((entity, key));
     public void SendChatMessage(Player player, string message) { }
     public void Kick(Player player, string reason) { }
+    public void RequestServerQuit(string reason) { }
     public NetworkEntityReference CreateNetworkEntity(Entity entity)
     {
         CreatedEntities.Add(entity);
@@ -626,7 +703,7 @@ sealed class FakeRuntime : IBridgeRuntime
         return new NetworkEntityReference { Handle = entity.Id + generation, NetworkId = entity.Id + generation + 1000 };
     }
     public int ResolveNetworkEntityHandle(int networkId) => NetworkHandles.TryGetValue(networkId, out var handle) ? handle : 0;
-    public void UpdateNetworkEntity(Entity entity) { }
+    public void UpdateNetworkEntity(Entity entity, bool updateTransform) { }
     public void DeleteNetworkEntity(Entity entity) => DeletedEntities.Add(entity);
     public void SetPlayerDimension(Player player, uint dimension) { }
 }

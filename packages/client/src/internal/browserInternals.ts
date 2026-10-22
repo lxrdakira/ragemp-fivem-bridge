@@ -25,6 +25,7 @@ export interface HeadlessBrowserState {
   height: number;
   surfaceGeneration: number;
   readyTimer: ReturnType<typeof setInterval> | null;
+  publishTimer: ReturnType<typeof setTimeout> | null;
   activationTimer: ReturnType<typeof setTimeout> | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
   pendingPayloads: Record<string, unknown>[];
@@ -77,8 +78,30 @@ export function browserDomReady(browser: BrowserMp): void {
     for (const payload of rec.headless.pendingPayloads.splice(0))
       sendHeadlessPayload(browser, payload);
   }
-  if (rec.cachedExec.length === 0) return;
   for (const code of rec.cachedExec.splice(0)) browser.execute(code);
+
+  const state = rec.headless;
+  if (!state?.dui) return;
+  if (state.publishTimer !== null) clearTimeout(state.publishTimer);
+  const readyDui = state.dui;
+  const readyGeneration = state.surfaceGeneration;
+  // DOMContentLoaded can arrive before Chromium has painted the transparent
+  // page into the DUI texture. Keep the public RAGE texture contract hidden
+  // for a short paint grace period instead of exposing a white frame.
+  state.publishTimer = setTimeout(() => {
+    state.publishTimer = null;
+    const current = BrowserInternals.get(browser);
+    const surface = current.headless;
+    if (
+      current.destroyed ||
+      !current.domReady ||
+      !surface ||
+      surface.dui !== readyDui ||
+      surface.surfaceGeneration !== readyGeneration
+    ) return;
+    browser.headlessTextureDict = surface.textureDict;
+    browser.headlessTextureName = surface.textureName;
+  }, 100);
 }
 
 export function applyBrowserPointerEvents(browser: BrowserMp): void {
@@ -131,12 +154,23 @@ function clearHeadlessIdleTimer(state: HeadlessBrowserState): void {
   state.idleTimer = null;
 }
 
+function clearHeadlessPublishTimer(state: HeadlessBrowserState): void {
+  if (state.publishTimer === null) return;
+  clearTimeout(state.publishTimer);
+  state.publishTimer = null;
+}
+
 function destroyHeadlessSurface(browser: BrowserMp, clearPayloads: boolean): void {
   const rec = BrowserInternals.get(browser);
   const state = rec.headless;
   if (!state) return;
   if (state.readyTimer !== null) clearInterval(state.readyTimer);
   state.readyTimer = null;
+  clearHeadlessPublishTimer(state);
+  // Marker renderers treat non-empty names as a ready surface. Clear them
+  // before destroying the DUI so no frame can draw a stale/white texture.
+  browser.headlessTextureDict = "";
+  browser.headlessTextureName = "";
   if (state.dui) DestroyDui(state.dui);
   state.dui = 0;
   rec.domReady = false;
@@ -164,9 +198,6 @@ function createHeadlessSurface(browser: BrowserMp): void {
 
     state.surfaceGeneration++;
     state.textureDict = `ragemp_dui_${browser.id}_${state.surfaceGeneration}`;
-    browser.headlessTextureDict = state.textureDict;
-    browser.headlessTextureName = state.textureName;
-
     const runtimeTxd = CreateRuntimeTxd(state.textureDict);
     CreateRuntimeTextureFromDuiHandle(runtimeTxd, state.textureName, GetDuiHandle(dui));
     state.dui = dui;
@@ -270,6 +301,9 @@ export function reloadHeadlessBrowser(browser: BrowserMp): boolean {
     if (rec.active) setHeadlessBrowserActive(browser, true);
     return true;
   }
+  clearHeadlessPublishTimer(state);
+  browser.headlessTextureDict = "";
+  browser.headlessTextureName = "";
   rec.domReady = false;
   SetDuiUrl(state.dui, state.resolvedUrl);
   beginHeadlessReadyHandshake(browser);

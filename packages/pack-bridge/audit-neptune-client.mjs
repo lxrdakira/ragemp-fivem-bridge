@@ -32,6 +32,7 @@ const neptuneExtensions = new Set([
   "mp._events.add",
   "mp.attachments.addFor", "mp.attachments.addLocal", "mp.attachments.attachments",
   "mp.attachments.clearLocal", "mp.attachments.initFor", "mp.attachments.register",
+  "mp.attachments.normalizeId",
   "mp.attachments.removeFor", "mp.attachments.removeLocal", "mp.attachments.shutdownFor",
   "mp.browsers.hideHud", "mp.browsers.showHud",
   "mp.configs.pokerDebug",

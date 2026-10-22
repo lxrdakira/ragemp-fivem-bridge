@@ -9,7 +9,7 @@ import {
   type StreamingInternalsRec,
 } from "../streamingInternals";
 import { hydrateSharedData, notifySharedDataValue } from "../../utils/sharedData";
-import { unregisterNativeDimensionEntity } from "../../utils/nativeEntityDimension";
+import { setNativeEntityDimension, unregisterNativeDimensionEntity } from "../../utils/nativeEntityDimension";
 import { clearDeferredNativeActions } from "../../utils/nativeEntityReady";
 
 export const LOCAL_STREAM_ID_BASE = 2_000_000_000;
@@ -281,7 +281,7 @@ function subscribeRegistry(pool: object, rec: StreamingInternalsRec): void {
   });
 }
 
-function onServerCreate(pool: object, remoteId: number, data: any): void {
+export function onServerCreate(pool: object, remoteId: number, data: any): void {
   const rec = StreamingInternals.get(pool);
   let entity = rec.byRemote.get(remoteId);
   if (!entity) {
@@ -293,6 +293,8 @@ function onServerCreate(pool: object, remoteId: number, data: any): void {
   state.serverModel = data?.model ?? 0;
   state.serverPos = { x: data?.x ?? 0, y: data?.y ?? 0, z: data?.z ?? 0 };
   state.serverDimension = data?.dimension ?? 0;
+  // Keep the public wrapper in the same world as its authoritative registry.
+  setNativeEntityDimension(entity, state.serverDimension);
   state.serverPlate = data?.plate ?? "";
   if (rec.netType === "vehicle" && unsignedModel(state.serverModel) === CARSHARE_RENT2114_MODEL) {
     const key = `create:${remoteId}:${normalizePlate(state.serverPlate)}`;
@@ -602,8 +604,7 @@ export function refreshServerHandle(pool: object, entity: any): any {
 
 export function resolveHandle(pool: object, handle: number): any {
   const rec = StreamingInternals.get(pool);
-  if (rec.filter && !rec.filter(handle)) return null;
-  if (!handle || !DoesEntityExist(handle)) return null;
+  if (!matchesPoolHandle(rec, handle)) return null;
 
   const existing = rec.handleToEntity.get(handle);
   if (existing) {
@@ -707,7 +708,17 @@ export function atRemote(pool: object, remoteId: number): any {
 }
 
 export function atHandle(pool: object, handle: number): any {
-  return StreamingInternals.get(pool).handleToEntity.get(handle) ?? null;
+  const rec = StreamingInternals.get(pool);
+  return matchesPoolHandle(rec, handle) ? rec.handleToEntity.get(handle) ?? null : null;
+}
+
+function matchesPoolHandle(rec: StreamingInternalsRec, handle: number): boolean {
+  if (!handle || !DoesEntityExist(handle)) return false;
+  const type = GetEntityType(handle);
+  if (rec.netType === "vehicle" && type !== 2) return false;
+  if (rec.netType === "object" && type !== 3) return false;
+  if (rec.netType === "ped" && (type !== 1 || IsPedAPlayer(handle))) return false;
+  return !rec.filter || rec.filter(handle);
 }
 
 export function atNetId(pool: object, netId: number): any {

@@ -1,5 +1,6 @@
 import { acknowledgeManagedSpawn } from "../../internal/eventManagerService";
 import { setPlayerModelIfDifferent } from "../../utils/playerModel";
+import { clearDeathVisuals } from "../../utils/respawnVisuals";
 
 interface PluginContext {
   log: (...args: unknown[]) => void;
@@ -112,6 +113,7 @@ export default function setup({ mp, plugin }: { mp: any; plugin: PluginContext }
       RemoveAllPedWeapons(newPed, false);
       ClearPlayerWantedLevel(PlayerId());
       SetEntityHealth(newPed, 200);
+      clearDeathVisuals();
 
       ShutdownLoadingScreen();
       if (typeof ShutdownLoadingScreenNui === "function")
@@ -132,6 +134,9 @@ export default function setup({ mp, plugin }: { mp: any; plugin: PluginContext }
       acknowledgeManagedSpawn(mp.events);
       const wasFirstSpawn = !hasSpawned;
       mp.events.call("playerSpawn", wasFirstSpawn);
+      // Legacy callbacks can leave a cached death timecycle active. Keep the
+      // explicit spawn boundary authoritative for presentation as well.
+      clearDeathVisuals();
       hasSpawned = true;
       emitNet("ragemp:playerSpawn");
     } catch (err) {

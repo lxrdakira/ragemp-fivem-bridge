@@ -6,6 +6,8 @@ export interface DamageEventState {
 
 let active: DamageEventState | null = null;
 
+export function isDamageEventActive(): boolean { return active !== null; }
+
 export function beginDamageEvent(): void {
   active = { cancelled: false, amount: null, critical: null };
 }

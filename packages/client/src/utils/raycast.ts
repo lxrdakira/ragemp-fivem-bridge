@@ -40,9 +40,9 @@ function resolveEntity(handle: number): any {
       return mp?.vehicles?.atHandle?.(handle) ?? handle;
     }
     if (IsEntityAPed(handle)) {
-      return mp?.players?.atHandle?.(handle)
-        ?? mp?.peds?.atHandle?.(handle)
-        ?? handle;
+      return (IsPedAPlayer(handle)
+        ? mp?.players?.atHandle?.(handle)
+        : mp?.peds?.atHandle?.(handle)) ?? handle;
     }
     if (IsEntityAnObject(handle)) {
       return mp?.objects?.atHandle?.(handle) ?? handle;

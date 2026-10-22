@@ -14,9 +14,10 @@ namespace RageMP.FiveM.Bridge
         void ResetSharedData(Entity entity, string key);
         void SendChatMessage(Player player, string message);
         void Kick(Player player, string reason);
+        void RequestServerQuit(string reason);
         NetworkEntityReference CreateNetworkEntity(Entity entity);
         int ResolveNetworkEntityHandle(int networkId);
-        void UpdateNetworkEntity(Entity entity);
+        void UpdateNetworkEntity(Entity entity, bool updateTransform);
         void DeleteNetworkEntity(Entity entity);
         void SetPlayerDimension(Player player, uint dimension);
     }
@@ -45,9 +46,10 @@ namespace RageMP.FiveM.Bridge
             public void ResetSharedData(Entity entity, string key) { }
             public void SendChatMessage(Player player, string message) => NotConfigured();
             public void Kick(Player player, string reason) => NotConfigured();
+            public void RequestServerQuit(string reason) => NotConfigured();
             public NetworkEntityReference CreateNetworkEntity(Entity entity) { NotConfigured(); return new NetworkEntityReference(); }
             public int ResolveNetworkEntityHandle(int networkId) => 0;
-            public void UpdateNetworkEntity(Entity entity) => NotConfigured();
+            public void UpdateNetworkEntity(Entity entity, bool updateTransform) => NotConfigured();
             public void DeleteNetworkEntity(Entity entity) => NotConfigured();
             public void SetPlayerDimension(Player player, uint dimension) => NotConfigured();
             private static void NotConfigured() => throw new InvalidOperationException("FiveM bridge runtime is not configured");
@@ -58,5 +60,6 @@ namespace RageMP.FiveM.Bridge
     {
         public int Handle { get; set; }
         public int NetworkId { get; set; }
+        public bool Pending { get; set; }
     }
 }

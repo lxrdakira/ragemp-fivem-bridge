@@ -13,7 +13,26 @@ const vehicle = {
   id: 42,
   handle: 100,
   setExtra: VehicleMp.prototype.setExtra,
+  getExtraColours: VehicleMp.prototype.getExtraColours,
+  getMaxBraking: VehicleMp.prototype.getMaxBraking,
+  setWindowTint: VehicleMp.prototype.setWindowTint,
 };
+
+(globalThis as any).GetVehicleExtraColours = (handle: number) => {
+  assert.equal(handle, vehicle.handle);
+  return [12, 34];
+};
+(globalThis as any).GetVehicleMaxBraking = (handle: number) => {
+  assert.equal(handle, vehicle.handle);
+  return 0.85;
+};
+assert.deepEqual(vehicle.getExtraColours(), { pearlescentColor: 12, wheelColor: 34 });
+assert.equal(vehicle.getMaxBraking(), 0.85);
+(globalThis as any).SetVehicleWindowTint = (handle: number, tint: number) => {
+  assert.equal(handle, vehicle.handle);
+  assert.equal(tint, 3);
+};
+vehicle.setWindowTint(3);
 
 // RAGE's CLIENT API accepts `disabled`, unlike its server API's enabled state.
 for (const disabled of [false, true, 0, 1]) {

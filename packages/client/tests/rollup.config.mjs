@@ -6,6 +6,11 @@ export default [
   ["entityIdentity", "entity-identity"],
   ["vehicleExtras", "vehicle-extras"],
   ["playerReconnect", "player-reconnect"],
+  ["staminaCompatibility", "stamina-compatibility"],
+  ["serverPedState", "server-ped-state"],
+  ["pedLocalFallbackRetry", "ped-local-fallback-retry"],
+  ["objectAnimationCompat", "object-animation-compat"],
+  ["browserCreateRetry", "browser-create-retry"],
 ].map(([input, output]) => ({
   input: `tests/${input}.test.ts`,
   output: { file: `tests/.tmp/${output}.cjs`, format: "cjs" },

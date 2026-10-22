@@ -453,6 +453,9 @@ export class PedMpBase extends EntityMpBase {
   taskPlayAnim(animDictionary: string, animationName: string, speed: number, speedMultiplier: number, duration: number, flag: number, playbackRate: number, lockX: boolean, lockY: boolean, lockZ: boolean): void {
     TaskPlayAnim(this.handle, animDictionary, animationName, speed ?? 8.0, speedMultiplier ?? -1, duration ?? -1, flag ?? 0, playbackRate ?? 0, !!lockX, !!lockY, !!lockZ);
   }
+  taskPlayAnimAdvanced(animDictionary: string, animationName: string, posX: number, posY: number, posZ: number, rotX: number, rotY: number, rotZ: number, speed: number, speedMultiplier: number, duration: number, flag: number, playbackRate: number, p14: number, p15: number): void {
+    TaskPlayAnimAdvanced(this.handle, animDictionary, animationName, posX, posY, posZ, rotX, rotY, rotZ, speed ?? 8.0, speedMultiplier ?? -8.0, duration ?? -1, flag ?? 0, playbackRate ?? 0, p14 ?? 0, p15 ?? 0);
+  }
   taskAchieveHeading(heading: number, timeout: number): void { TaskAchieveHeading(this.handle, heading, timeout ?? 0); }
   taskAimGunAt(entity: number, duration: number, p3: boolean): void { TaskAimGunAtEntity(this.handle, entity, duration, !!p3); }
   taskAimGunAtCoord(x: number, y: number, z: number, time: number, p5: boolean, p6: boolean): void { TaskAimGunAtCoord(this.handle, x, y, z, time, !!p5, !!p6); }

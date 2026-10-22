@@ -13,6 +13,7 @@ interface PlayerPoolState {
   serverIdToRemote: Map<number, number>;
   remoteToServerId: Map<number, number>;
   activeByServerId: Map<number, number>;
+  streamedHandles: Map<number, number>;
 }
 
 const Store = defineInternals<PlayerPoolState>();
@@ -37,6 +38,7 @@ export function setupPlayerPool(pool: PlayerMpPool): void {
     serverIdToRemote: new Map(),
     remoteToServerId: new Map(),
     activeByServerId: new Map(),
+    streamedHandles: new Map(),
   });
   setupIdentitySync(pool);
   setupLocal(pool);
@@ -151,7 +153,23 @@ function setupStreaming(pool: PlayerMpPool): void {
     for (const [, entity] of poolStore<PlayerMp>(pool).entities) {
       if (pool.local && entity === pool.local) continue;
       const serverId = st.remoteToServerId.get(entity.remoteId);
-      if (serverId !== undefined && !st.activeByServerId.has(serverId)) setPlayerNetworkIdentity(entity, -1, serverId);
+      const active = serverId !== undefined && st.activeByServerId.has(serverId);
+      const handle = active ? entity.handle : 0;
+      const readyHandle = handle && DoesEntityExist(handle) ? handle : 0;
+      const previousHandle = st.streamedHandles.get(entity.remoteId) ?? 0;
+      if (previousHandle !== readyHandle) {
+        if (previousHandle) {
+          st.streamedHandles.delete(entity.remoteId);
+          globalThis.mp?.events?.call("entityStreamOut", entity);
+        }
+        if (readyHandle) {
+          // Legacy gamertags initialize on stream-in, not on identity mapping.
+          try { hydrateSharedData(entity, globalThis.Player(serverId!).state); } catch (_) {}
+          st.streamedHandles.set(entity.remoteId, readyHandle);
+          globalThis.mp?.events?.call("entityStreamIn", entity);
+        }
+      }
+      if (serverId !== undefined && !active) setPlayerNetworkIdentity(entity, -1, serverId);
     }
   });
 }
@@ -188,6 +206,7 @@ function applyUnmap(pool: PlayerMpPool, source: number): void {
   if (pool.local && pool.local.remoteId === remoteId) return;
   const entity = pool.atRemoteId(remoteId);
   if (entity) {
+    if (st.streamedHandles.delete(remoteId)) globalThis.mp?.events?.call("entityStreamOut", entity);
     removeFromPool(pool, entity.id);
     freeClientId(pool, entity.id);
   }

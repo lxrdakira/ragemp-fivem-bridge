@@ -374,6 +374,17 @@ export class EntityMpBase extends Entity {
     return IsEntityPlayingAnim(this.handle, animDict, animName, taskFlag ?? 3);
   }
 
+  getAnimCurrentTime(animDict: string, animName: string): number {
+    const handle = this.handle;
+    return handle && DoesEntityExist(handle)
+      ? GetEntityAnimCurrentTime(handle, animDict, animName)
+      : 0;
+  }
+
+  forceAiAndAnimationUpdate(): void {
+    runNativeEntityAction(this, (handle) => ForceEntityAiAndAnimationUpdate(handle));
+  }
+
   playAnim(animName: string, animDict: string, p8?: number, loop?: boolean, stayInAnim?: boolean, p11?: boolean, delta?: number, bitset?: any): boolean {
     return PlayEntityAnim(this.handle, animName, animDict, p8 ?? 8.0, !!loop, !!stayInAnim, !!p11, delta ?? 0, bitset ?? 0);
   }

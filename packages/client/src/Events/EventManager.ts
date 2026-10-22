@@ -3,8 +3,11 @@ import { sanitizeArgsForNet } from "@ragemp-fivem-bridge/shared";
 import { ClientEventManagerInternals, initClientEventManagerInternals } from "../internal/eventManagerInternals";
 import { setupEventManager, handleEventAdded, handleEventRemoved } from "../internal/eventManagerService";
 import type { EventHandler } from "@ragemp-fivem-bridge/shared/internal";
+import { isDamageEventActive } from "../internal/damageEventContext";
+import { DownedShotGate } from "../utils/downedShotGate";
 
 export class EventManager extends EventEmitter {
+  private readonly downedShotGate = new DownedShotGate();
   constructor() {
     super();
     initClientEventManagerInternals(this);
@@ -22,6 +25,14 @@ export class EventManager extends EventEmitter {
   }
 
   callRemote(eventName: string, ...args: any[]): void {
+    if (eventName === "server.downed.attack") {
+      const ped = PlayerPedId();
+      const weapon = GetSelectedPedWeapon(ped);
+      if (GetWeaponDamageType(weapon) === 3 && !this.downedShotGate.accept(
+        Number(args[0]), weapon, GetAmmoInPedWeapon(ped, weapon),
+        isDamageEventActive() ? "damage" : "shot", GetGameTimer(),
+      )) return;
+    }
     const rec = ClientEventManagerInternals.get(this);
     const contract = rec.remoteEventContracts.get(eventName);
     if (contract && args.length >= contract.required && args.length < contract.total) {
@@ -29,6 +40,9 @@ export class EventManager extends EventEmitter {
       while (args.length < contract.total) args.push(contract.defaults[args.length]);
     }
     const sanitized = sanitizeArgsForNet(args);
+    if (eventName === "signin") {
+      console.log(`[ragemp:remote] emitting signin; args=${sanitized.length}; variadic=${rec.variadicRemoteEvents.has(eventName)}`);
+    }
     if (rec.variadicRemoteEvents.has(eventName)) {
       emitNet(eventName, sanitized);
     } else {

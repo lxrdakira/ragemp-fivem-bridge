@@ -58,11 +58,25 @@ namespace RageMP.FiveM.Bridge.Host
 
         public void Kick(RagePlayer player, string reason) => RequirePlayer(player).Drop(reason);
 
+        public void RequestServerQuit(string reason)
+        {
+            // Let FXServer run its own shutdown path. In the observed restart
+            // logs, Environment.Exit reached ProcessExit but svMain stayed alive.
+            var safeReason = (reason ?? string.Empty).Replace('"', ' ').Replace('\n', ' ').Replace('\r', ' ').Trim();
+            API.ExecuteCommand(safeReason.Length == 0 ? "quit" : $"quit \"{safeReason}\"");
+        }
+
         public NetworkEntityReference CreateNetworkEntity(RageEntity entity)
         {
             var position = entity.Position;
             if (entity is GTANetworkAPI.Vehicle vehicle)
             {
+                // A non-zero unpublished handle belongs to an earlier
+                // CREATE_VEHICLE RPC. Finalize that request instead of issuing
+                // another native and producing a duplicate vehicle.
+                if (entity.NativeHandle != 0)
+                    return FinalizeNetworkEntity(entity.NativeHandle, entity, requireImmediateExistence: false);
+
                 // BestMP b3788 accepts CREATE_VEHICLE_SERVER_SETTER and returns
                 // a server handle/network id, but the resulting entity never
                 // enters client scope. CREATE_VEHICLE is the compatible path
@@ -111,8 +125,11 @@ namespace RageMP.FiveM.Bridge.Host
         private NetworkEntityReference FinalizeNetworkEntity(int handle, RageEntity entity, bool requireImmediateExistence)
         {
             if (handle == 0) return new NetworkEntityReference();
-            if (requireImmediateExistence && !API.DoesEntityExist(handle))
-                return new NetworkEntityReference();
+            if (!API.DoesEntityExist(handle))
+            {
+                if (requireImmediateExistence) return new NetworkEntityReference();
+                return new NetworkEntityReference { Handle = handle, Pending = true };
+            }
             try
             {
                 if (API.DoesEntityExist(handle))
@@ -148,11 +165,11 @@ namespace RageMP.FiveM.Bridge.Host
             }
         }
 
-        public void UpdateNetworkEntity(RageEntity entity)
+        public void UpdateNetworkEntity(RageEntity entity, bool updateTransform)
         {
             var handle = entity.NativeHandle;
             if (handle == 0 || !API.DoesEntityExist(handle)) return;
-            ApplyEntityState(handle, entity);
+            ApplyEntityState(handle, entity, updateTransform);
         }
 
         public int ResolveNetworkEntityHandle(int networkId)
@@ -170,19 +187,19 @@ namespace RageMP.FiveM.Bridge.Host
             }
         }
 
-        private static void ApplyEntityState(int handle, RageEntity entity)
+        private static void ApplyEntityState(int handle, RageEntity entity, bool updateTransform = true)
         {
-            var position = entity.Position;
-            var nativeZ = entity is GTANetworkAPI.Ped
-                ? position.Z - RageGroundZCompensation
-                : position.Z;
-            // SET_ENTITY_COORDS_NO_OFFSET is a client-only native in this runtime.
-            // Invoking its hash from the server produced a warning for every
-            // vehicle state update and eventually destabilized the native stack.
-            // The server-owned entity already has the requested origin after the
-            // Create* call; use the supported server native for later updates.
-            API.SetEntityCoords(handle, position.X, position.Y, nativeZ, false, false, false, false);
-            API.SetEntityRotation(handle, entity.Rotation.X, entity.Rotation.Y, entity.Rotation.Z, 2, true);
+            if (updateTransform)
+            {
+                var position = entity.Position;
+                var nativeZ = entity is GTANetworkAPI.Ped
+                    ? position.Z - RageGroundZCompensation
+                    : position.Z;
+                // Creation and explicit Position/Rotation writes move entities;
+                // property updates must not snap driven vehicles to spawn.
+                API.SetEntityCoords(handle, position.X, position.Y, nativeZ, false, false, false, false);
+                API.SetEntityRotation(handle, entity.Rotation.X, entity.Rotation.Y, entity.Rotation.Z, 2, true);
+            }
             API.SetEntityRoutingBucket(handle, unchecked((int)entity.Dimension));
             if (entity is GTANetworkAPI.Vehicle vehicle)
             {

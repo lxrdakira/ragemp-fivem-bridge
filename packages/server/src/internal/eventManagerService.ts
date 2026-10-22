@@ -6,6 +6,7 @@ import { ServerEventManagerInternals } from "./eventManagerInternals";
 import { PlayerInternals } from "./playerInternals";
 import { removeFromVehiclePool } from "./pools/vehiclePoolService";
 import { VehicleInternals } from "./vehicleInternals";
+import { shouldCancelSafeZoneWeaponDamage } from "../utils/safeZoneDamageGate";
 import { removeFromPedPool } from "./pools/pedPoolService";
 import { removeFromObjectPool } from "./pools/objectPoolService";
 import type { EventManager } from "../Events/EventManager";
@@ -27,6 +28,21 @@ export function setupEventManager(mgr: EventManager): void {
 }
 
 function setupBuiltinEvents(mgr: EventManager): void {
+  // `outgoingDamage` on the client runs after GTA has generated the hit and
+  // cannot authoritatively reject damage to a remotely-owned player ped.
+  on("weaponDamageEvent", (sender: number, damage: any) => {
+    try {
+      if (shouldCancelSafeZoneWeaponDamage(sender, damage, {
+        playerBySource,
+        entityFromNetId: (netId) => NetworkGetEntityFromNetworkId(netId),
+        entityOwner: (entity) => NetworkGetEntityOwner(entity),
+        playerPed: (playerSource) => GetPlayerPed(String(playerSource)),
+      })) CancelEvent();
+    } catch (error) {
+      console.error("[ragemp:safeZoneDamageGate]", error);
+    }
+  });
+
   onNet("ragemp:playerReady", (forResource: string) => {
     const src = source;
     const player = playerBySource(src);

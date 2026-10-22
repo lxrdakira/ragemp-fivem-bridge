@@ -10,7 +10,7 @@ let artificialLightsDisabled = false;
 // helper replaces it and calling it from here loops back into
 // mp.game.graphics.drawSprite. Keep the original native reference before any
 // migrated client package gets a chance to populate `global`.
-const nativeDrawSprite = DrawSprite;
+const nativeDrawSprite = globalThis.DrawSprite;
 
 export class GameGraphicsNs {
   unk = createUnkProxy();
@@ -2874,18 +2874,32 @@ export class GameGraphicsNs {
   } // unverified
 
   world3dToScreen2d(
-    coords3d: {
-      x?: number;
-      y?: number;
-      z?: number;
-      [0]?: number;
-      [1]?: number;
-      [2]?: number;
-    } | null,
+    coords3d:
+      | number
+      | {
+          x?: number;
+          y?: number;
+          z?: number;
+          [0]?: number;
+          [1]?: number;
+          [2]?: number;
+        }
+      | null,
+    worldY?: number,
+    worldZ?: number,
   ): { x: number; y: number } | null {
-    const x = coords3d?.x ?? coords3d?.[0] ?? 0;
-    const y = coords3d?.y ?? coords3d?.[1] ?? 0;
-    const z = coords3d?.z ?? coords3d?.[2] ?? 0;
+    let x: number;
+    let y: number;
+    let z: number;
+    if (typeof coords3d === "number") {
+      x = coords3d;
+      y = worldY ?? 0;
+      z = worldZ ?? 0;
+    } else {
+      x = coords3d?.x ?? coords3d?.[0] ?? 0;
+      y = coords3d?.y ?? coords3d?.[1] ?? 0;
+      z = coords3d?.z ?? coords3d?.[2] ?? 0;
+    }
     const r = GetScreenCoordFromWorldCoord(x, y, z);
     if (!r?.[0]) return null;
     return { x: r[1], y: r[2] };

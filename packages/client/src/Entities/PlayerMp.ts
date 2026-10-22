@@ -5,6 +5,7 @@ import { toVec3 } from "../utils/vec";
 import { getLocalDimension } from "../utils/dimension";
 import { PlayerInternals, initPlayerInternals, getPlayerServerId } from "../internal/playerInternals";
 import { setPlayerModelIfDifferent } from "../utils/playerModel";
+import { isPlayerVoiceTalking } from "../VoiceChat";
 
 // Voice FX parameter shapes (from ragemp d.ts)
 interface VoiceFxChorus { fWetDryMix: number; fDepth: number; fFeedback: number; fFrequency: number; lWaveform: number; fDelay: number; lPhase: number; }
@@ -122,8 +123,12 @@ export class PlayerMp extends PedMpBase {
   }
 
   get isVoiceActive(): boolean {
-    return NetworkIsPlayerTalking(PlayerInternals.get(this).playerIndex);
+    return isPlayerVoiceTalking(PlayerInternals.get(this).playerIndex);
   }
+
+  // Legacy Neptune writes this UI hint on key down/up. Accept those writes
+  // without throwing, but never let them fake the real Mumble talking state.
+  set isVoiceActive(_value: boolean) {}
 
   get ping(): number {
     return GetPlayerPing(PlayerInternals.get(this).playerIndex);

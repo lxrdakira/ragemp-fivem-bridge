@@ -97,7 +97,8 @@ export function setupBrowserPool(pool: BrowserMpPool): void {
   registerNuiCallback("ragemp:browserEvent", (data: any, cb: (result: Record<string, unknown>) => void) => {
     const { event, args } = data;
     if (event === "Authorization-Login" || event === "__codexAuthTransportProbe") {
-      console.log(`[ragemp:nui] received browser event ${event}`);
+      const handlerCount = globalThis.mp?.events?.getAllOf?.(event)?.length ?? 0;
+      console.log(`[ragemp:nui] received browser event ${event}; handlers=${handlerCount}; args=${Array.isArray(args) ? args.length : 0}`);
     }
     if (event === "command") {
       const command = String(args?.[0] ?? "").trim();

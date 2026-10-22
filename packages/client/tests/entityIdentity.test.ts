@@ -8,16 +8,21 @@ import {
 } from "@ragemp-fivem-bridge/shared/internal";
 import {
   atRemote,
+  atHandle,
   bindHandle,
   bindLocalFallbackHandle,
   resolveHandle,
   setupStreamingPool,
+  onServerCreate,
 } from "../src/internal/pools/streamingService";
 import { StreamingInternals, streamEntityState } from "../src/internal/streamingInternals";
 import { safeGetEntityFromNetId } from "../src/utils/netId";
+import { testPointToPoint } from "../src/utils/raycast";
 import {
   BrowserInternals,
   initBrowserInternals,
+  browserDomReady,
+  destroyHeadlessBrowser,
   setHeadlessBrowser,
   setHeadlessBrowserActive,
 } from "../src/internal/browserInternals";
@@ -25,6 +30,7 @@ import {
 const bags = new Map<number, Record<string, unknown>>();
 const emitted: unknown[][] = [];
 const streamed: unknown[] = [];
+const nativeTypes = new Map<number, number>();
 let networkResolutionAvailable = true;
 let networkAdvisoryAvailable = true;
 let nativeHandlesAvailable = true;
@@ -33,6 +39,8 @@ let gameTimer = 5000;
 let networkResolverCalls = 0;
 
 (globalThis as any).DoesEntityExist = (handle: number) => nativeHandlesAvailable && (handle === 100 || handle === 101 || handle === 102);
+(globalThis as any).GetEntityType = (handle: number) => nativeTypes.get(handle) ?? 2;
+(globalThis as any).IsPedAPlayer = () => false;
 (globalThis as any).NetworkGetEntityIsNetworked = () => true;
 (globalThis as any).NetworkGetNetworkIdFromEntity = (handle: number) => handle === 102 ? 903 : handle === 101 ? 902 : 901;
 (globalThis as any).NetworkGetEntityFromNetworkId = (netId: number) => {
@@ -97,16 +105,38 @@ assert(networkResolverCalls === callsBeforeMissingProbe, "missing network id rea
 networkResolutionAvailable = true;
 networkAdvisoryAvailable = true;
 
+const examPool = {};
+initPool(examPool);
+setupStreamingPool(examPool, "vehicle");
+StreamingInternals.get(examPool).makeEntity = (id, handle) => new TestVehicle(id, handle);
+onServerCreate(examPool, 400, { model: 123456, x: 0, y: 0, z: 0, dimension: 730 });
+const examStub = StreamingInternals.get(examPool).byRemote.get(400) as TestVehicle;
+assert(examStub.dimension === 730, "registry exam dimension was not exposed by the public wrapper");
+onServerCreate(examPool, 400, { model: 123456, x: 0, y: 0, z: 0, dimension: 731 });
+assert(Number(examStub.dimension) === 731, "registry snapshot did not refresh public dimension");
 const pool = {};
 initPool(pool);
 setupStreamingPool(pool, "vehicle");
 StreamingInternals.get(pool).makeEntity = (id, handle) => new TestVehicle(id, handle);
 bags.set(100, {});
 
+// Legacy entity lookup probes several pools with the same handle. Wrong-pool
+// lookup must not manufacture a vehicle wrapper for an NPC or an object.
+for (const type of [1, 3]) {
+  nativeTypes.set(100, type);
+  assert(resolveHandle(pool, 100) === null, "non-vehicle entered vehicle pool");
+  assert(StreamingInternals.get(pool).byLocal.size === 0, "wrong-pool lookup allocated identity");
+  assert(emitted.length === 0 && streamed.length === 0, "wrong-pool lookup emitted events");
+}
+nativeTypes.delete(100);
+
 const placeholder = resolveHandle(pool, 100) as TestVehicle;
 assert(placeholder.id === 0, "first scanned wrapper should receive local id 0");
 assert(placeholder.remoteId === INVALID_REMOTE_ID, "first scanned wrapper must be temporary");
 assert(emitted.length === 1 && emitted[0][0] === "ragemp:entity:resolve", "missing server resolver request");
+nativeTypes.set(100, 1);
+assert(atHandle(pool, 100) === null, "cached vehicle wrapper accepted a reused NPC handle");
+nativeTypes.delete(100);
 
 bags.get(100)!["rmp:__bridgeRemoteId"] = 77;
 const serializedBeforePromotion = sanitizeForNet(placeholder) as Record<string, unknown>;
@@ -217,6 +247,11 @@ const pedPool = {};
 initPool(pedPool);
 setupStreamingPool(pedPool, "ped");
 StreamingInternals.get(pedPool).makeEntity = (id, handle) => new TestPed(id, handle);
+assert(resolveHandle(pedPool, 100) === null, "vehicle entered ped pool");
+nativeTypes.set(100, 1);
+(globalThis as any).IsPedAPlayer = () => true;
+assert(resolveHandle(pedPool, 100) === null, "player entered NPC pool");
+(globalThis as any).IsPedAPlayer = () => false;
 const fallbackPed = bindLocalFallbackHandle(
   pedPool,
   321,
@@ -229,29 +264,49 @@ assert(fallbackPed.dimension === 7, "local NPC fallback lost its dimension");
 assert(streamEntityState(fallbackPed).isLocalFallback, "local NPC fallback was not marked for local cleanup");
 assert(atRemote(pedPool, 321) === fallbackPed, "local NPC fallback is absent from the remote pool index");
 
+const originalMp = (globalThis as any).mp;
+const playerHit = { type: "player", handle: 100 };
+(globalThis as any).mp = {
+  vehicles: { atHandle: (handle: number) => atHandle(pool, handle) ?? resolveHandle(pool, handle), toArray: () => [] },
+  players: { atHandle: () => playerHit },
+  peds: { atHandle: (handle: number) => atHandle(pedPool, handle) ?? resolveHandle(pedPool, handle) },
+};
+(globalThis as any).IsEntityAVehicle = () => false;
+(globalThis as any).IsEntityAPed = () => true;
+(globalThis as any).StartExpensiveSynchronousShapeTestLosProbe = () => 1;
+(globalThis as any).GetShapeTestResult = () => [2, true, [1, 2, 3], [0, 0, 1], 100];
+const ray = () => testPointToPoint({ x: 0, y: 0, z: 0 }, { x: 1, y: 2, z: 3 }, 0);
+assert(ray().entity === fallbackPed, "NPC ray hit entered player/vehicle radial menu");
+assert(atHandle(pool, 100) === null, "NPC ray hit contaminated vehicle ESP pool");
+(globalThis as any).IsPedAPlayer = () => true;
+assert(ray().entity === playerHit, "real player ray hit lost player interactions");
+(globalThis as any).IsPedAPlayer = () => false;
+(globalThis as any).mp = originalMp;
+
 // World-marker render loops repeat `browser.active = true` every frame. A
 // pending DUI activation must survive those idempotent assignments.
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 let nextTimerId = 1;
-const activeTimers = new Set<number>();
-(globalThis as any).setTimeout = (_callback: Function, _delay: number) => {
+const activeTimers = new Map<number, Function>();
+(globalThis as any).setTimeout = (callback: Function, _delay: number) => {
   const id = nextTimerId++;
-  activeTimers.add(id);
+  activeTimers.set(id, callback);
   return id;
 };
 (globalThis as any).clearTimeout = (id: number) => activeTimers.delete(id);
-const headlessBrowser = {} as any;
+const headlessBrowser = { headlessTextureDict: "", headlessTextureName: "" } as any;
 initBrowserInternals(headlessBrowser, "http://package/cef/test.html");
 setHeadlessBrowser(headlessBrowser, {
   dui: 0,
   resolvedUrl: "https://cfx-nui-test/cef/test.html",
-  textureDict: "",
+  textureDict: "ragemp_dui_test_1",
   textureName: "test",
   width: 256,
   height: 256,
   surfaceGeneration: 0,
   readyTimer: null,
+  publishTimer: null,
   activationTimer: null,
   idleTimer: null,
   pendingPayloads: [],
@@ -264,6 +319,26 @@ assert(activeTimers.size === 1, "repeated headless activation reset/rearmed the 
 BrowserInternals.get(headlessBrowser).active = false;
 setHeadlessBrowserActive(headlessBrowser, false);
 assert(activeTimers.size === 0, "headless activation timer survived deactivation");
+
+// A DUI surface must not be exposed until the page has loaded and painted,
+// and its public texture names must disappear before the DUI is destroyed.
+const headlessState = BrowserInternals.get(headlessBrowser).headless!;
+headlessState.dui = 123;
+headlessState.surfaceGeneration = 1;
+browserDomReady(headlessBrowser);
+assert(headlessBrowser.headlessTextureDict === "", "headless texture was published before its paint grace period");
+assert(activeTimers.size === 1, "headless texture publication was not scheduled");
+const publish = activeTimers.values().next().value as Function;
+activeTimers.clear();
+publish();
+assert(headlessBrowser.headlessTextureDict === "ragemp_dui_test_1", "ready headless texture was not published");
+assert(headlessBrowser.headlessTextureName === "test", "ready headless texture name was not published");
+let destroyedDui = 0;
+(globalThis as any).DestroyDui = (dui: number) => { destroyedDui = dui; };
+destroyHeadlessBrowser(headlessBrowser);
+assert(destroyedDui === 123, "headless DUI was not destroyed");
+assert(headlessBrowser.headlessTextureDict === "", "destroyed headless texture remained publicly drawable");
+assert(headlessBrowser.headlessTextureName === "", "destroyed headless texture name remained publicly drawable");
 (globalThis as any).setTimeout = originalSetTimeout;
 (globalThis as any).clearTimeout = originalClearTimeout;
 

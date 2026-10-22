@@ -4,6 +4,8 @@
  * Chars.ClothesComponents.MaxClothesComponent on the legacy server.
  */
 
+import { pendingComponentPreloads } from "./clothingPreloads";
+
 declare function GetNumberOfPedCollectionDrawableVariations(
   ped: number,
   componentId: number,
@@ -94,7 +96,7 @@ const FEMALE_COLLECTION_2 = "piterlivef_02";
 const resolvedCollectionNames = new Map<string, string>();
 const missingCollectionWarnings = new Set<string>();
 const appliedVariationLogs = new Set<string>();
-const pendingComponentPreloads = new Map<string, number>();
+const CLOTHING_DIAGNOSTICS_ENABLED = false;
 let componentPreloadSequence = 0;
 
 /**
@@ -116,7 +118,7 @@ function getMountedCollectionName(ped: number, requestedName: string): string | 
       mountedName.endsWith(`_${requestedName}`)
     ) {
       resolvedCollectionNames.set(cacheKey, mountedName);
-      console.log(`[clothing-bridge] mounted collection ${requestedName} -> ${mountedName}`);
+      if (CLOTHING_DIAGNOSTICS_ENABLED) console.log(`[clothing-bridge] mounted collection ${requestedName} -> ${mountedName}`);
       return mountedName;
     }
   }
@@ -307,11 +309,15 @@ function preloadAndReapplyCollectionComponent(
       );
     }
 
-    const actualCollection = GetPedDrawableVariationCollectionName(ped, component);
-    const actualLocal = GetPedDrawableVariationCollectionLocalIndex(ped, component);
-    console.log(
+    if (CLOTHING_DIAGNOSTICS_ENABLED) {
+      const actualCollection = GetPedDrawableVariationCollectionName(ped, component);
+      const actualLocal = GetPedDrawableVariationCollectionLocalIndex(ped, component);
+      console.log(
       `[clothing-bridge] preload component=${component} collection=${collection} local=${drawable} finished=${finished} attempts=${attempts} actualCollection=${actualCollection} actualLocal=${actualLocal}`,
-    );
+      );
+    } else if (!finished) {
+      console.warn(`[clothing-bridge] preload timed out component=${component} collection=${collection} local=${drawable}`);
+    }
     if (pendingComponentPreloads.get(pendingKey) === token) {
       pendingComponentPreloads.delete(pendingKey);
     }
@@ -405,11 +411,10 @@ export function setCompatibleComponentVariation(
         setter = "global-fallback";
       }
 
-      const actualCollection = GetPedDrawableVariationCollectionName(ped, component);
-      const actualLocal = GetPedDrawableVariationCollectionLocalIndex(ped, component);
-
       const logKey = `component:${component}:${collection}:${resolved.drawable}:${texture}`;
-      if (!appliedVariationLogs.has(logKey)) {
+      if (CLOTHING_DIAGNOSTICS_ENABLED && !appliedVariationLogs.has(logKey)) {
+        const actualCollection = GetPedDrawableVariationCollectionName(ped, component);
+        const actualLocal = GetPedDrawableVariationCollectionLocalIndex(ped, component);
         appliedVariationLogs.add(logKey);
         console.log(
           `[clothing-bridge] applied component=${component} legacy=${drawable} collection=${collection} local=${resolved.drawable} texture=${texture}/${maxTextures} global=${globalDrawable} actual=${actualGlobal} actualCollection=${actualCollection} actualLocal=${actualLocal} valid=${valid} setter=${setter} count=${maxDrawables}`,
@@ -496,7 +501,7 @@ export function setCompatiblePropIndex(
       }
 
       const logKey = `prop:${prop}:${collection}:${resolved.drawable}:${texture}`;
-      if (!appliedVariationLogs.has(logKey)) {
+      if (CLOTHING_DIAGNOSTICS_ENABLED && !appliedVariationLogs.has(logKey)) {
         appliedVariationLogs.add(logKey);
         console.log(
           `[clothing-bridge] applied prop=${prop} legacy=${drawable} collection=${collection} local=${resolved.drawable} texture=${texture}/${maxTextures} global=${globalDrawable} actual=${actualGlobal} setter=${setter} count=${maxDrawables}`,

@@ -36,8 +36,9 @@ export class PlayerMpPool extends Pool<PlayerMp> {
   }
 
   atHandle(handle: number): PlayerMp | null {
+    if (!handle) return null;
     for (const player of this.toArray()) {
-      if (player.handle === handle || player.getIndex() === handle) return player;
+      if (player.handle === handle) return player;
     }
     return null;
   }

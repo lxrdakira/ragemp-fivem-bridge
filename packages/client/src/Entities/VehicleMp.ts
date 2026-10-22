@@ -51,6 +51,7 @@ export class VehicleMp extends EntityMpBase {
 
   get windowTint(): number { return GetVehicleWindowTint(this.handle); }
   set windowTint(value: number) { SetVehicleWindowTint(this.handle, value); }
+  setWindowTint(value: number): void { SetVehicleWindowTint(this.handle, value); }
 
   get wheelType(): number { return GetVehicleWheelType(this.handle); }
   set wheelType(value: number) { SetVehicleWheelType(this.handle, value); }
@@ -107,6 +108,10 @@ export class VehicleMp extends EntityMpBase {
   getIsPrimaryColourCustom(): boolean { return GetIsVehiclePrimaryColourCustom(this.handle); }
   getIsSecondaryColourCustom(): boolean { return GetIsVehicleSecondaryColourCustom(this.handle); }
   setExtraColours(pearlescentColor: number, wheelColor: number): void { SetVehicleExtraColours(this.handle, pearlescentColor, wheelColor); }
+  getExtraColours(): { pearlescentColor: number; wheelColor: number } {
+    const [pearlescentColor, wheelColor] = GetVehicleExtraColours(this.handle);
+    return { pearlescentColor, wheelColor };
+  }
   getNumberOfColours(): number { return GetNumberOfVehicleColours(this.handle); }
   setTyreSmokeColor(r: number, g: number, b: number): void { SetVehicleTyreSmokeColor(this.handle, r, g, b); }
   getNeonColor(): number[] { const c = GetVehicleNeonLightsColour(this.handle); return [c[0], c[1], c[2]]; }
@@ -153,6 +158,7 @@ export class VehicleMp extends EntityMpBase {
   setPetrolTankHealth(fix: number): void { SetVehiclePetrolTankHealth(this.handle, fix); }
   getCauseOfDestruction(): number { return GetVehicleCauseOfDestruction(this.handle); }
   getMaxTraction(): number { return GetVehicleMaxTraction(this.handle); }
+  getMaxBraking(): number { return GetVehicleMaxBraking(this.handle); }
   getAcceleration(): number { return GetVehicleAcceleration(this.handle); }
   getDeformationAtPos(offsetX: number, offsetY: number, offsetZ: number): Vector3 { return toVec3(GetVehicleDeformationAtPos(this.handle, offsetX, offsetY, offsetZ)); }
   setDamage(xOffset: number, yOffset: number, zOffset: number, damage: number, radius: number, focusOnModel: boolean): void { SetVehicleDamage(this.handle, xOffset, yOffset, zOffset, damage, radius, !!focusOnModel); }

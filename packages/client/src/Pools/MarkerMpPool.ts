@@ -33,6 +33,9 @@ export class MarkerMpPool extends Pool<MarkerMp> {
     }
     if (options.visible !== undefined) rec.visible = options.visible;
     if (options.dimension !== undefined) rec.dimension = options.dimension;
+    if (Number.isFinite(options.drawDistance) && options.drawDistance > 0) {
+      rec.drawDistance = options.drawDistance;
+    }
 
     addLocal(this, marker as any);
     return marker;

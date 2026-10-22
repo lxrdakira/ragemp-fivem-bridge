@@ -127,7 +127,7 @@ class CursorMp {
   show(freezeControls: boolean, state: boolean): void {
     this._visible = !!state;
     this._freeze = !!freezeControls;
-    setCursorVisible(this._visible);
+    setCursorVisible(this._visible, !this._freeze);
     this._updateFreezeTick();
   }
 

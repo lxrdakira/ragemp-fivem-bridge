@@ -17,7 +17,11 @@ export class GameMiscNs {
   isPrevWeatherType(weatherType: string): boolean { return IsPrevWeatherType(weatherType); }
   isNextWeatherType(weatherType: string): boolean { return IsNextWeatherType(weatherType); }
   setWeatherTypePersist(weatherType: string): void { SetWeatherTypePersist(weatherType); }
-  setWeatherTypeNow(weatherType: string): void { SetWeatherTypeNow(weatherType); }
+  setWeatherTypeNow(weatherType: string): void {
+    ClearOverrideWeather();
+    ClearWeatherTypePersist();
+    SetWeatherTypeNow(weatherType);
+  }
   setWeatherTypeNowPersist(weatherType: string): void { SetWeatherTypeNowPersist(weatherType); }
   setWeatherTypeOvertimePersist(weatherType: string, time: number): void { SetWeatherTypeOvertimePersist(weatherType, time); }
   setRandomWeatherType(): void { SetRandomWeatherType(); }
@@ -287,7 +291,11 @@ export class GameMiscNs {
   }
 
   clearWeatherTypeOvertimePersist(transitionTime: number): void { ClearWeatherTypeOvertimePersist(transitionTime); }
-  setWeatherTypeTransition(weatherType1: number, weatherType2: number, percentWeather2: number): void { SetWeatherTypeTransition(weatherType1, weatherType2, percentWeather2); }
+  setWeatherTypeTransition(weatherType1: number, weatherType2: number, percentWeather2: number): void {
+    ClearOverrideWeather();
+    ClearWeatherTypePersist();
+    SetWeatherTypeTransition(weatherType1, weatherType2, percentWeather2);
+  }
 
   clearCloudHat(): void { ClearCloudHat(); }
   setCloudHatOpacity(opacity: number): void { SetCloudsAlpha(opacity); }

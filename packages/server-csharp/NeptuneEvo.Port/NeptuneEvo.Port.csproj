@@ -36,6 +36,9 @@
     <Compile Include="Compatibility.cs" />
     <Compile Include="FiveMCompatibilityEvents.cs" />
     <Compile Include="FiveMIdentityBridge.cs" />
+    <Compile Include="StagingIsolation.cs" />
+    <Compile Include="RedisConnection.cs" />
+    <Compile Include="LegacyNpcClothing.cs" />
   </ItemGroup>
 
   <Target Name="GenerateFiveMPortSources" BeforeTargets="CoreCompile">

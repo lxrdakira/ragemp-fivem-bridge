@@ -22,15 +22,14 @@ function bridgeDist(pkg) {
   );
 }
 
-function fxManifest({ withCsharp, withNeptune }) {
+export function fxManifest({ withCsharp, withNeptune }) {
   const serverScripts = ["    'server.js'"];
   if (withCsharp) serverScripts.push("    'csharp/RageMP.FiveM.Bridge.Host.net.dll'");
   if (withNeptune) serverScripts.push("    'csharp/NeptuneEvo.Port.net.dll'");
 
+  // Server assemblies are loaded from server_scripts and must not be sent
+  // to players via the client files manifest.
   const files = ["    'ui/_bridge.js'"];
-  if (withCsharp) {
-    files.push("    'csharp/*.dll'");
-  }
 
   return `fx_version 'cerulean'
 game 'gta5'
@@ -135,6 +134,7 @@ export async function packBridge(flags = {}) {
   console.log("  + fxmanifest.lua");
 
   console.log(`\n  Done. Drop '${relative(process.cwd(), outDir) || outDir}/' into your FiveM server's resources folder.`);
+  console.log(`  Add 'add_ace resource.ragemp-fivem-bridge command.quit allow' to server.cfg for the scheduled restart path.`);
   console.log(`  Add 'ensure ragemp-fivem-bridge' to server.cfg before your gamemode.\n`);
 
   return outDir;

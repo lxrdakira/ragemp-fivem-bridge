@@ -23,8 +23,8 @@ namespace GTANetworkAPI
         public int HashCode => GetHashCode();
         public int Value => Handle.Value;
         public ushort Id => Handle.Value;
-        public virtual Vector3 Position { get => _position; set { _position = value ?? new Vector3(); SyncNetworkState(); } }
-        public virtual Vector3 Rotation { get => _rotation; set { _rotation = value ?? new Vector3(); SyncNetworkState(); } }
+        public virtual Vector3 Position { get => _position; set { _position = value ?? new Vector3(); SyncNetworkState(updateTransform: true); } }
+        public virtual Vector3 Rotation { get => _rotation; set { _rotation = value ?? new Vector3(); SyncNetworkState(updateTransform: true); } }
         public float Heading { get => Rotation.Z; set => Rotation = new Vector3(Rotation.X, Rotation.Y, value); }
         public bool IsNull => Handle.IsNull;
         public bool Exists => !IsNull && IsInstanceAlive;
@@ -38,7 +38,7 @@ namespace GTANetworkAPI
         public int NetworkId { get; internal set; }
         internal bool NetworkPublished { get; set; }
         internal string PublishedVehiclePlate { get; set; } = string.Empty;
-        protected void SyncNetworkState() => EntityNetworkSync.Update(this);
+        protected void SyncNetworkState(bool updateTransform = false) => EntityNetworkSync.Update(this, updateTransform);
 
         internal void ApplyNetworkTransform(Vector3 position, Vector3 rotation, uint dimension)
         {
@@ -215,8 +215,19 @@ namespace GTANetworkAPI
         public void WarpOutOfVehicle() => TriggerEvent("ragemp:removeFromVehicle");
         public void SetSkin(PedHash model) => SetSkin((uint)model);
         public void SetSkin(uint model) { SetModelInternal(model); TriggerEvent("ragemp:setModel", model); }
-        public void PlayAnimation(string dictionary, string name, int flags) => TriggerEvent("ragemp:playAnimation", dictionary, name, 8f, flags);
-        public void StopAnimation() => TriggerEvent("ragemp:stopAnimation");
+        public void PlayAnimation(string dictionary, string name, int flags) => PlayAnimation(dictionary, name, 8f, flags);
+        internal void PlayAnimation(string dictionary, string name, float speed, int flags)
+        {
+            TriggerEvent("ragemp:playAnimation", dictionary, name, speed, flags);
+            BridgeRuntime.Current.TriggerClientEventForAll(
+                "ragemp:player:playAnimation",
+                new object[] { Id, dictionary, name, speed, flags });
+        }
+        public void StopAnimation()
+        {
+            TriggerEvent("ragemp:stopAnimation");
+            BridgeRuntime.Current.TriggerClientEventForAll("ragemp:player:stopAnimation", new object[] { Id });
+        }
         public void EnableVoiceTo(Player target) => TriggerEvent("ragemp:enableVoiceTo", target.Id);
         public void DisableVoiceTo(Player target) => TriggerEvent("ragemp:disableVoiceTo", target.Id);
         public void SetDecoration(Decoration decoration) => TriggerEvent("ragemp:setDecoration", decoration.Collection, decoration.Overlay);

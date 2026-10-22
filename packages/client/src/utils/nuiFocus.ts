@@ -1,12 +1,15 @@
 const _kbHolders = new Set<string>();
 let _cursorVisible = false;
+let _cursorKeepInput = false;
 let _tick: null | number = null;
 let _chatBrowserId: number | null = null;
 
 function _desired() {
   const hasFocus = _kbHolders.size > 0 || _cursorVisible;
   const hasCursor = _cursorVisible;
-  const keepInput = _kbHolders.size > 0 && !_cursorVisible;
+  // RAGE cursor.show(false, true) keeps gameplay input (e.g. phone driving).
+  // A visible blocking cursor still wins over any browser keyboard holder.
+  const keepInput = _cursorVisible ? _cursorKeepInput : _kbHolders.size > 0;
   return { hasFocus, hasCursor, keepInput };
 }
 
@@ -81,8 +84,9 @@ export function setBrowserFocus(holder: string, on: boolean): void {
   _apply();
 }
 
-export function setCursorVisible(visible: boolean): void {
+export function setCursorVisible(visible: boolean, keepInput = false): void {
   _cursorVisible = !!visible;
+  _cursorKeepInput = _cursorVisible && !!keepInput;
   console.log(`[nui-focus] cursor=${_cursorVisible ? 1 : 0} holders=${JSON.stringify(Array.from(_kbHolders))}`);
   _apply();
 }
@@ -90,6 +94,7 @@ export function setCursorVisible(visible: boolean): void {
 export function releaseAllNuiFocus(reason = "unspecified"): void {
   _kbHolders.clear();
   _cursorVisible = false;
+  _cursorKeepInput = false;
   console.log(`[nui-focus] force release reason=${reason}`);
   _apply();
 }
@@ -99,6 +104,7 @@ export function getNuiFocusDebugState(): Record<string, unknown> {
   return {
     holders: Array.from(_kbHolders),
     cursorVisible: _cursorVisible,
+    cursorKeepInput: _cursorKeepInput,
     desired,
     nativeFocused: typeof IsNuiFocused === "function" ? IsNuiFocused() : null,
   };

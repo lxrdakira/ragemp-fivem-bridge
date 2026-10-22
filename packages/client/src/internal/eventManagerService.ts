@@ -11,6 +11,7 @@ import { ClientEventManagerInternals } from "../internal/eventManagerInternals";
 import type { EventManager } from "../Events/EventManager";
 import { beginDamageEvent, endDamageEvent } from "./damageEventContext";
 import { applySharedDataValue, setSharedDataChangeSink } from "../utils/sharedData";
+import { isPlayerVoiceTalking } from "../VoiceChat";
 
 export function setupEventManager(mgr: EventManager): void {
   setupBuiltinEvents(mgr);
@@ -1102,7 +1103,7 @@ export function tickStreaming(mgr: EventManager, cache: { players: number[]; veh
       }
     }
 
-    const isTalking = NetworkIsPlayerTalking(p);
+    const isTalking = isPlayerVoiceTalking(p);
     if (isTalking && !rec.talkingPlayers.has(serverId)) {
       rec.talkingPlayers.add(serverId);
       mgr.call("playerStartTalking", remoteMp);

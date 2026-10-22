@@ -10,7 +10,10 @@ namespace GTANetworkAPI
     {
         private const int NativeSnapshotChunkSize = 128;
         private static readonly long[] PedPublishRetryDelays = { 500, 1500, 5000 };
+        private static readonly long[] VehiclePublishRetryDelays = { 100, 250, 500, 1000, 2000, 5000 };
         private static readonly ConcurrentDictionary<ushort, int> PedPublishAttempts =
+            new ConcurrentDictionary<ushort, int>();
+        private static readonly ConcurrentDictionary<ushort, int> VehiclePublishAttempts =
             new ConcurrentDictionary<ushort, int>();
 
         public static void Publish(Entity entity)
@@ -27,7 +30,17 @@ namespace GTANetworkAPI
                 if (entity.NetworkPublished)
                 {
                     if (entity is Ped) PedPublishAttempts.TryRemove(entity.Id, out _);
+                    if (entity is Vehicle) VehiclePublishAttempts.TryRemove(entity.Id, out _);
                     PublishNativeReference(entity);
+                }
+                else if (entity is Vehicle vehicle && reference.Pending && entity.IsInstanceAlive)
+                {
+                    // CREATE_VEHICLE is an RPC native: the server receives a
+                    // handle before the entity is guaranteed to exist locally.
+                    // Keep polling that same handle. Starting the server-setter
+                    // fallback here creates a second physical vehicle when the
+                    // original RPC completes a few frames later.
+                    ScheduleVehiclePublishRetry(vehicle);
                 }
                 else if (entity is Ped ped && entity.IsInstanceAlive)
                 {
@@ -58,14 +71,14 @@ namespace GTANetworkAPI
             BridgeRuntime.Current.TriggerClientEventForAll(eventName, new object[] { Serialize(entity) });
         }
 
-        internal static void Update(Entity entity)
+        internal static void Update(Entity entity, bool updateTransform = false)
         {
             if (entity == null || !entity.NetworkPublished || !entity.IsInstanceAlive) return;
             var eventName = EventName(entity, "Update");
             if (eventName != null) BridgeRuntime.Current.TriggerClientEventForAll(eventName, new object[] { entity.Id, Serialize(entity) });
             else if (entity.NativeHandle != 0)
             {
-                BridgeRuntime.Current.UpdateNetworkEntity(entity);
+                BridgeRuntime.Current.UpdateNetworkEntity(entity, updateTransform);
                 if (entity is Vehicle vehicle)
                 {
                     // Vehicle identity on the client is matched by the stable
@@ -113,6 +126,7 @@ namespace GTANetworkAPI
             entity.NetworkPublished = reference.Handle != 0 && reference.NetworkId != 0;
             if (entity.NetworkPublished)
             {
+                if (entity is Vehicle) VehiclePublishAttempts.TryRemove(entity.Id, out _);
                 PublishNativeReference(entity);
                 if (entity is Vehicle vehicle)
                 {
@@ -122,6 +136,10 @@ namespace GTANetworkAPI
                             player.TriggerEvent("ragemp:putIntoVehicle", vehicle.NetworkId, player.VehicleSeat);
                     }
                 }
+            }
+            else if (entity is Vehicle pendingVehicle && reference.Pending)
+            {
+                ScheduleVehiclePublishRetry(pendingVehicle);
             }
             else
             {
@@ -136,6 +154,7 @@ namespace GTANetworkAPI
         {
             if (entity == null) return;
             if (entity is Ped) PedPublishAttempts.TryRemove(entity.Id, out _);
+            if (entity is Vehicle) VehiclePublishAttempts.TryRemove(entity.Id, out _);
             if (entity is Vehicle vehicle)
             {
                 Debug.WriteLine(
@@ -164,6 +183,31 @@ namespace GTANetworkAPI
                 entity.NetworkPublished = false;
             }
             RemoveFromPool(entity);
+        }
+
+        private static void ScheduleVehiclePublishRetry(Vehicle vehicle)
+        {
+            var attempt = VehiclePublishAttempts.AddOrUpdate(vehicle.Id, 1, (_, current) => current + 1);
+            if (attempt > VehiclePublishRetryDelays.Length)
+            {
+                VehiclePublishAttempts.TryRemove(vehicle.Id, out _);
+                Debug.WriteLine(
+                    $"[ragemp-csharp] vehicle publication timed out id={vehicle.Id} model={vehicle.Model} " +
+                    $"handle={vehicle.NativeHandle} position={vehicle.Position.X:F3},{vehicle.Position.Y:F3},{vehicle.Position.Z:F3}");
+                BridgeRuntime.Current.DeleteNetworkEntity(vehicle);
+                vehicle.NativeHandle = 0;
+                vehicle.NetworkId = 0;
+                vehicle.IsInstanceAlive = false;
+                RemoveFromPool(vehicle);
+                return;
+            }
+
+            var delay = VehiclePublishRetryDelays[attempt - 1];
+            BridgeRuntime.Current.Schedule(() =>
+            {
+                if (!vehicle.IsInstanceAlive || vehicle.NetworkPublished) return;
+                Publish(vehicle);
+            }, delay);
         }
 
         private static void SchedulePedPublishRetry(Ped ped)

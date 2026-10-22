@@ -39,7 +39,9 @@ namespace RageMP.FiveM.Bridge.Host
             var player = (Player?)Activator.CreateInstance(type, handle) ?? new Player(handle);
             player.Name = source.Name;
             player.Serial = ResolveStableIdentifier(source);
-            player.SocialClubName = source.Name;
+            // Отображаемое имя FiveM не подтверждает владение старым Social Club.
+            // Иначе совпадение имени подставляет чужой логин до ввода пароля.
+            player.SocialClubName = string.Empty;
             player.SocialClubId = HashIdentifier(player.Serial);
             player.Address = API.GetPlayerEndpoint(source.Handle) ?? string.Empty;
             var dimension = unchecked((uint)API.GetPlayerRoutingBucket(source.Handle));

@@ -1,0 +1,22 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+import { patchNpcClothing, legacyInstructorPreset, currentInstructorPreset } from "./npc-clothing-patch.mjs";
+
+const root = process.env.PLMP_LEGACY_GAME_ROOT;
+assert.ok(root, "Set PLMP_LEGACY_GAME_ROOT");
+const source = fs.readFileSync(path.join(root, "client_packages/main.js"), "utf8");
+const patched = patchNpcClothing(source);
+assert.equal(patched, source.replace(legacyInstructorPreset, currentInstructorPreset));
+const clothes = vm.runInNewContext(`({${currentInstructorPreset}})`);
+assert.equal(clothes[11][0], 669);
+assert.equal(clothes[0][0], 274);
+assert.equal(clothes[7][0], 281);
+assert.equal(clothes[7][1], 10);
+assert.equal(clothes[8][0], 223);
+assert.equal(clothes[4][0], 263);
+assert.throws(() => patchNpcClothing(""), /found 0/);
+assert.throws(() => patchNpcClothing(legacyInstructorPreset + legacyInstructorPreset), /found 2/);
+assert.throws(() => patchNpcClothing(patched), /found 0/);
+console.log("PASS actual legacy bundle instructor preset: matching server shifts, no unrelated changes, duplicate/missing/repatch rejection");

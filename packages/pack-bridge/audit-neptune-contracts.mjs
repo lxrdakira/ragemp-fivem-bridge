@@ -2,12 +2,14 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { collectActiveCefServerProcedures } from "./collect-active-cef-procedures.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bridgeRoot = resolve(here, "../..");
 const projectRoot = resolve(bridgeRoot, "..");
 const clientBundlePath = resolve(projectRoot, "client_packages/main.js");
 const cefBundlePath = resolve(projectRoot, "client_packages/interface/build/bundle.js");
+const cefSourceRoot = resolve(projectRoot, "src_cef/src");
 const clientSourceRoot = resolve(projectRoot, "src_client");
 const serverSourceRoot = resolve(projectRoot, "dotnet/resources/NeptuneEvo");
 const portSourceRoot = resolve(bridgeRoot, "packages/server-csharp/NeptuneEvo.Port");
@@ -35,7 +37,7 @@ const upstreamDeadRemoteEvents = new Set([
   "server.table.editrank", "server.table.evacuation", "server.table.event",
   "server.table.fracad", "server.table.gethistory", "server.table.gps",
   "server.table.invite", "server.table.irank", "server.table.leave",
-  "server.table.rank", "server.table.reprimand", "server.table.sellcar",
+  "server.table.rank", "server.table.sellcar",
   "server.table.tuning", "server.table.ufracad", "server.table.uninvite",
   "server.table.upgrade", "server.table.vrank",
   "Snake", "wshop", "wshopammo",
@@ -55,7 +57,7 @@ const requiredFiveMAdapters = new Set([
 // the original RAGE C# server. They are audited separately from migration
 // gaps; the legacy RPC tunnel below still services every implemented route.
 const upstreamDeadCefServerProcedures = new Set([
-  "BattlePass-Claim", "BattlePass-RequestData",
+  "BattlePass-Claim",
   "Binds-Fetch", "Binds-SetKey",
   "Player-GetAllSettings", "Player-SetSettingValue",
   "PlayerSkills-GetAll", "Quest-ClaimExp", "Vehicle-GetPlayerList",
@@ -75,7 +77,7 @@ function collectFiles(root, extension) {
   return result;
 }
 
-for (const required of [clientBundlePath, cefBundlePath, clientSourceRoot, serverSourceRoot, portSourceRoot, hostSourcePath]) {
+for (const required of [clientBundlePath, cefBundlePath, cefSourceRoot, clientSourceRoot, serverSourceRoot, portSourceRoot, hostSourcePath]) {
   if (!existsSync(required)) throw new Error(`required Neptune contract input is missing: ${required}`);
 }
 
@@ -138,12 +140,12 @@ const staleAllowlistEntries = [...upstreamDeadRemoteEvents]
   .sort();
 const missingAdapters = [...requiredFiveMAdapters].filter((name) => !serverRemoteEvents.has(name)).sort();
 
-const cefBundle = readFileSync(cefBundlePath, "utf8")
-  .replace(/\/\*[\s\S]*?\*\//g, "")
-  .replace(/^\s*\/\/.*$/gm, "");
-const cefServerProcedures = new Set();
-for (const match of cefBundle.matchAll(/(?:executeServer\)|\.callServer)\(\s*["']([^"']+)["']/g))
-  cefServerProcedures.add(match[1]);
+const cefBundle = readFileSync(cefBundlePath, "utf8");
+const cefSources = [
+  ...collectFiles(cefSourceRoot, ".js"),
+  ...collectFiles(cefSourceRoot, ".svelte"),
+].map((path) => readFileSync(path, "utf8"));
+const cefServerProcedures = collectActiveCefServerProcedures(cefSources, cefBundle);
 const missingCefServerProcedures = [...cefServerProcedures]
   .filter((name) => !serverRemoteEvents.has(name) && !upstreamDeadCefServerProcedures.has(name))
   .sort();

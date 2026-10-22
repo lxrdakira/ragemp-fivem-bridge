@@ -65,11 +65,17 @@ take substantial time and disk space.
 Start order in `server.cfg`:
 
 ```cfg
+add_ace resource.ragemp-fivem-bridge command.quit allow
 ensure ragemp-fivem-bridge
 ensure neptuneevo-ui-assets-common
 ensure neptuneevo-ui-assets-player
 ensure neptuneevo-ui
 ```
+
+The ACE is required for the scheduled restart path: after saving, the port
+asks FXServer to run `quit` instead of calling `Environment.Exit` from a
+resource thread. Keep the grant scoped to this resource, and verify a full
+stop/reconnect cycle with a player on an isolated server before deployment.
 
 Use `neptuneevo-ui-dev` instead of `neptuneevo-ui` for the local overlay.
 
